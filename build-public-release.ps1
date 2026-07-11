@@ -188,6 +188,51 @@ function Sign-Artifact([string]$Path) {
     }
 }
 
+function Get-MsiScalar([string]$Path, [string]$Query) {
+    $installer = New-Object -ComObject WindowsInstaller.Installer
+    $database = $null
+    $view = $null
+    $record = $null
+    try {
+        $database = $installer.GetType().InvokeMember(
+            "OpenDatabase", [Reflection.BindingFlags]::InvokeMethod, $null, $installer, @($Path, 0)
+        )
+        $view = $database.GetType().InvokeMember(
+            "OpenView", [Reflection.BindingFlags]::InvokeMethod, $null, $database, @($Query)
+        )
+        $view.GetType().InvokeMember(
+            "Execute", [Reflection.BindingFlags]::InvokeMethod, $null, $view, $null
+        ) | Out-Null
+        $record = $view.GetType().InvokeMember(
+            "Fetch", [Reflection.BindingFlags]::InvokeMethod, $null, $view, $null
+        )
+        if (-not $record) {
+            throw "MSI query returned no rows: $Query"
+        }
+        return [string]$record.GetType().InvokeMember(
+            "StringData", [Reflection.BindingFlags]::GetProperty, $null, $record, @(1)
+        )
+    } finally {
+        foreach ($comObject in @($record, $view, $database, $installer)) {
+            if ($comObject) {
+                [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($comObject)
+            }
+        }
+    }
+}
+
+function Assert-MsiMetadata([string]$Path, [string]$ExpectedVersion) {
+    $productVersion = Get-MsiScalar $Path "SELECT ``Value`` FROM ``Property`` WHERE ``Property``='ProductVersion'"
+    if ($productVersion -ne $ExpectedVersion) {
+        throw "MSI ProductVersion is $productVersion, expected $ExpectedVersion."
+    }
+    $launchCondition = Get-MsiScalar $Path "SELECT ``Condition`` FROM ``LaunchCondition`` WHERE ``Description``='Windows 10 or later is required.'"
+    $expectedCondition = "Installed OR (PINUS_WINDOWS_BUILD AND PINUS_WINDOWS_BUILD >= 10240)"
+    if ($launchCondition -ne $expectedCondition) {
+        throw "Unexpected MSI LaunchCondition: $launchCondition"
+    }
+}
+
 & (Join-Path $Root "scripts\scan-secrets.ps1")
 $Go = Resolve-Go
 $VersionSource = Get-Content -LiteralPath (Join-Path $Client "version\version.go") -Raw
@@ -379,6 +424,7 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw "WiX light failed for $architecture."
             }
+            Assert-MsiMetadata $msi $Version
             Sign-Artifact $msi
         }
 
