@@ -110,11 +110,24 @@ func RunUI() {
 }
 
 func RunPreview() {
+	runPreview(false)
+}
+
+func RunEmptyPreview() {
+	runPreview(true)
+}
+
+func runPreview(emptyProfiles bool) {
 	runtime.LockOSThread()
 	window, err := NewManageTunnelsWindow(true)
 	if err != nil {
 		showErrorCustom(nil, "Pinus Smart AWG Preview", err.Error())
 		return
+	}
+	if emptyProfiles {
+		window.dashboard.profiles = nil
+		window.dashboard.selected = -1
+		window.dashboard.ShowPage(pageProfiles)
 	}
 	window.Show()
 	window.Run()

@@ -1055,11 +1055,20 @@ func (dashboard *Dashboard) drawProfilesPage(canvas *walk.Canvas, content walk.R
 
 	listY := startY + dashboard.px(54)
 	if len(dashboard.profiles) == 0 {
-		empty := walk.Rectangle{X: content.X, Y: listY, Width: content.Width, Height: dashboard.px(205)}
-		dashboard.drawCard(canvas, "profiles:import", empty, false, false)
-		dashboard.drawText(canvas, "\ue8d4", dashboard.theme.iconFont, dashboard.theme.accentColor, walk.Rectangle{X: empty.X, Y: empty.Y + dashboard.px(30), Width: empty.Width, Height: dashboard.px(42)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine)
-		dashboard.drawText(canvas, "Импортируй первый VPN-профиль", dashboard.theme.headingFont, dashboard.theme.textColor, walk.Rectangle{X: empty.X + dashboard.px(20), Y: empty.Y + dashboard.px(82), Width: empty.Width - dashboard.px(40), Height: dashboard.px(28)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine)
-		dashboard.drawText(canvas, "Поддерживаются обычные конфиги AmneziaWG .conf и архивы .zip", dashboard.theme.smallFont, dashboard.theme.mutedColor, walk.Rectangle{X: empty.X + dashboard.px(40), Y: empty.Y + dashboard.px(116), Width: empty.Width - dashboard.px(80), Height: dashboard.px(42)}, walk.TextCenter|walk.TextVCenter|walk.TextWordbreak)
+		empty := walk.Rectangle{X: content.X, Y: listY, Width: content.Width, Height: dashboard.px(224)}
+		dashboard.drawCard(canvas, "", empty, false, false)
+		dashboard.drawText(canvas, "\ue8d4", dashboard.theme.iconFont, dashboard.theme.accentColor, walk.Rectangle{X: empty.X, Y: empty.Y + dashboard.px(20), Width: empty.Width, Height: dashboard.px(42)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine)
+		dashboard.drawText(canvas, "Добавь первый VPN-профиль", dashboard.theme.headingFont, dashboard.theme.textColor, walk.Rectangle{X: empty.X + dashboard.px(20), Y: empty.Y + dashboard.px(68), Width: empty.Width - dashboard.px(40), Height: dashboard.px(28)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine)
+		dashboard.drawText(canvas, "Импортируй свой .conf / .zip или получи готовый профиль у Pinus VPN", dashboard.theme.smallFont, dashboard.theme.mutedColor, walk.Rectangle{X: empty.X + dashboard.px(40), Y: empty.Y + dashboard.px(100), Width: empty.Width - dashboard.px(80), Height: dashboard.px(38)}, walk.TextCenter|walk.TextVCenter|walk.TextWordbreak)
+
+		buttonGap := dashboard.px(12)
+		importWidth := dashboard.px(174)
+		buyWidth := dashboard.px(166)
+		buttonsWidth := importWidth + buttonGap + buyWidth
+		buttonsX := empty.X + (empty.Width-buttonsWidth)/2
+		buttonsY := empty.Y + dashboard.px(156)
+		dashboard.drawButton(canvas, "profiles:import", "Импортировать", "\ue8e5", walk.Rectangle{X: buttonsX, Y: buttonsY, Width: importWidth, Height: dashboard.px(42)}, false, dashboard.operationBusy())
+		dashboard.drawButton(canvas, "profiles:buy", "Купить профиль", "\ue8d4", walk.Rectangle{X: buttonsX + importWidth + buttonGap, Y: buttonsY, Width: buyWidth, Height: dashboard.px(42)}, true, false)
 		return
 	}
 

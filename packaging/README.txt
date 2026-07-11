@@ -1,4 +1,6 @@
-PINUS SMART AWG 3.2.0
+PINUS SMART AWG 3.2.1
+
+Получить VPN-профиль: https://t.me/pinusvpn_bot
 
 1. Распакуйте архив в обычную папку. Не запускайте EXE прямо из ZIP.
 2. Запустите PinusSmartAWG.exe.

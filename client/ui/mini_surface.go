@@ -253,6 +253,12 @@ func (surface *miniSurface) drawText(canvas *walk.Canvas, text string, font *wal
 	surface.gdiCommands = append(surface.gdiCommands, dashboardGDICommand{text: text, font: font, color: color, bounds: bounds, format: format})
 }
 
+func (surface *miniSurface) drawImage(_ *walk.Canvas, image walk.Image, bounds walk.Rectangle) {
+	if image != nil {
+		surface.gdiCommands = append(surface.gdiCommands, dashboardGDICommand{image: image, bounds: bounds})
+	}
+}
+
 func (surface *miniSurface) flushGDI(canvas *walk.Canvas) {
 	for _, command := range surface.gdiCommands {
 		if command.image != nil {

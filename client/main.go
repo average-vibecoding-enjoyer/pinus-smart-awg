@@ -76,6 +76,7 @@ func usage() {
 		"/dumplog [/tail]",
 		"/update",
 		"/preview",
+		"/previewempty",
 	}
 	builder := strings.Builder{}
 	for _, flag := range flags {
@@ -349,6 +350,12 @@ func main() {
 			usage()
 		}
 		ui.RunPreview()
+		return
+	case "/previewempty":
+		if len(os.Args) != 2 {
+			usage()
+		}
+		ui.RunEmptyPreview()
 		return
 	}
 	usage()

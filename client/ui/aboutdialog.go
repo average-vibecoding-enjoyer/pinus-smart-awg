@@ -10,17 +10,11 @@ import (
 	"strings"
 
 	"github.com/lxn/walk"
-	"github.com/lxn/win"
-	"golang.org/x/sys/windows"
 
-	"github.com/amnezia-vpn/amneziawg-windows-client/l18n"
 	"github.com/amnezia-vpn/amneziawg-windows-client/version"
 )
 
-var (
-	easterEggIndex     = -1
-	showingAboutDialog *walk.Dialog
-)
+var showingAboutDialog *walk.Dialog
 
 func onAbout(owner walk.Form) {
 	showError(runAboutDialog(owner), owner)
@@ -33,123 +27,90 @@ func runAboutDialog(owner walk.Form) error {
 		return nil
 	}
 
-	vbl := walk.NewVBoxLayout()
-	vbl.SetMargins(walk.Margins{80, 20, 80, 20})
-	vbl.SetSpacing(10)
-
-	var disposables walk.Disposables
-	defer disposables.Treat()
-
-	var err error
-	showingAboutDialog, err = walk.NewDialogWithFixedSize(owner)
+	dialog, err := walk.NewDialog(owner)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		showingAboutDialog = nil
-	}()
-	disposables.Add(showingAboutDialog)
-	showingAboutDialog.SetTitle("О Pinus Smart AWG")
-	applyWindowChrome(showingAboutDialog.Handle())
-	showingAboutDialog.SetLayout(vbl)
-	background, _ := walk.NewSolidColorBrush(walk.RGB(7, 24, 43))
-	if background != nil {
-		defer background.Dispose()
-		showingAboutDialog.SetBackground(background)
+	showingAboutDialog = dialog
+	defer func() { showingAboutDialog = nil }()
+	defer dialog.Dispose()
+
+	dialog.SetTitle("О Pinus Smart AWG")
+	dialog.SetSize(walk.Size{Width: 500, Height: 540})
+	dialog.SetMinMaxSize(walk.Size{Width: 500, Height: 540}, walk.Size{Width: 500, Height: 540})
+	applyWindowChrome(dialog.Handle())
+	if icon, iconErr := loadLogoIcon(32); iconErr == nil {
+		dialog.SetIcon(icon)
 	}
-	if icon, err := loadLogoIcon(32); err == nil {
-		showingAboutDialog.SetIcon(icon)
+	logo, _ := loadLogoIcon(128)
+
+	rows := []struct {
+		label string
+		value string
+	}{
+		{"Версия", version.Number},
+		{"Go", strings.TrimPrefix(runtime.Version(), "go")},
+		{"Система", version.OsName()},
+		{"Архитектура", version.Arch()},
 	}
 
-	font, _ := walk.NewFont("Verdana", 9, 0)
-	if font != nil {
-		defer font.Dispose()
-	}
-	showingAboutDialog.SetFont(font)
+	paint := func(ui *miniSurface, canvas *walk.Canvas, bounds walk.Rectangle) {
+		margin := ui.px(24)
+		logoSize := ui.px(96)
+		logoBounds := walk.Rectangle{X: (bounds.Width - logoSize) / 2, Y: ui.px(18), Width: logoSize, Height: logoSize}
+		if logo != nil {
+			ui.drawImage(canvas, logo, logoBounds)
+		}
 
-	iv, err := walk.NewImageView(showingAboutDialog)
-	if err != nil {
-		return err
-	}
-	iv.SetCursor(walk.CursorHand())
-	iv.MouseUp().Attach(func(x, y int, button walk.MouseButton) {
-		if button == walk.LeftButton {
-			win.ShellExecute(showingAboutDialog.Handle(), nil, windows.StringToUTF16Ptr("https://t.me/MEN9_HET"), nil, nil, win.SW_SHOWNORMAL)
-		} else if easterEggIndex >= 0 && button == walk.RightButton {
-			if icon, err := loadSystemIcon("moricons", int32(easterEggIndex), 128); err == nil {
-				iv.SetImage(icon)
-				easterEggIndex++
-			} else {
-				easterEggIndex = -1
-				if logo, err := loadLogoIcon(128); err == nil {
-					iv.SetImage(logo)
-				}
+		ui.drawText(canvas, "Pinus Smart AWG", ui.theme.titleFont, ui.theme.textColor, walk.Rectangle{X: margin, Y: ui.px(124), Width: bounds.Width - margin*2, Height: ui.px(34)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
+		ui.drawText(canvas, "VPN и умная маршрутизация в одном окне", ui.theme.smallFont, ui.theme.mutedColor, walk.Rectangle{X: margin, Y: ui.px(158), Width: bounds.Width - margin*2, Height: ui.px(22)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
+
+		infoCard := walk.Rectangle{X: margin, Y: ui.px(196), Width: bounds.Width - margin*2, Height: ui.px(120)}
+		ui.drawCard(canvas, "", infoCard, false, false)
+		rowHeight := ui.px(26)
+		rowY := infoCard.Y + ui.px(8)
+		for index, row := range rows {
+			if index > 0 {
+				line := walk.Rectangle{X: infoCard.X + ui.px(16), Y: rowY, Width: infoCard.Width - ui.px(32), Height: ui.px(1)}
+				ui.fillGradient(canvas, line, ui.theme.border.Color(), ui.theme.border.Color(), 0, ui.theme.border)
 			}
+			ui.drawText(canvas, row.label, ui.theme.smallFont, ui.theme.mutedColor, walk.Rectangle{X: infoCard.X + ui.px(18), Y: rowY, Width: ui.px(116), Height: rowHeight}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine)
+			ui.drawText(canvas, row.value, ui.theme.bodyFont, ui.theme.textColor, walk.Rectangle{X: infoCard.X + ui.px(142), Y: rowY, Width: infoCard.Width - ui.px(160), Height: rowHeight}, walk.TextRight|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
+			rowY += rowHeight
+		}
+
+		ui.drawText(canvas, "Разработано командой Pinus VPN", ui.theme.headingFont, ui.theme.textColor, walk.Rectangle{X: margin, Y: ui.px(330), Width: bounds.Width - margin*2, Height: ui.px(26)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine)
+		ui.drawButton(canvas, "about:telegram", "Открыть @pinusvpn_bot", "\ue8f2", walk.Rectangle{X: margin, Y: ui.px(362), Width: bounds.Width - margin*2, Height: ui.px(46)}, true, false)
+
+		ui.drawText(canvas, "Основано на AmneziaWG, WireGuard и amnezia-box.", ui.theme.microFont, ui.theme.mutedColor, walk.Rectangle{X: margin, Y: ui.px(418), Width: bounds.Width - margin*2, Height: ui.px(26)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
+
+		closeWidth := ui.px(112)
+		ui.drawButton(canvas, "about:close", "Закрыть", "", walk.Rectangle{X: bounds.Width - margin - closeWidth, Y: bounds.Height - ui.px(56), Width: closeWidth, Height: ui.px(40)}, false, false)
+	}
+
+	activate := func(id string) {
+		switch id {
+		case "about:telegram":
+			openPinusVPNBot(dialog)
+		case "about:close":
+			dialog.Accept()
+		}
+	}
+
+	surface, err := newMiniSurface(dialog, paint, activate)
+	if err != nil {
+		return err
+	}
+	if err = installMiniDialogLayout(dialog); err != nil {
+		return err
+	}
+	dialog.SetBackground(surface.theme.background)
+	surface.KeyDown().Attach(func(key walk.Key) {
+		if key == walk.KeyEscape || key == walk.KeyReturn {
+			dialog.Accept()
 		}
 	})
-	if logo, err := loadLogoIcon(128); err == nil {
-		iv.SetImage(logo)
-	}
-	iv.Accessibility().SetName("Pinus Smart AWG logo image")
 
-	wgLbl, err := walk.NewTextLabel(showingAboutDialog)
-	if err != nil {
-		return err
-	}
-	wgFont, _ := walk.NewFont("Verdana", 15, walk.FontBold)
-	if wgFont != nil {
-		defer wgFont.Dispose()
-	}
-	wgLbl.SetFont(wgFont)
-	wgLbl.SetTextAlignment(walk.AlignHCenterVNear)
-	wgLbl.SetText("Pinus Smart AWG")
-	wgLbl.SetTextColor(walk.RGB(238, 247, 255))
-
-	detailsLbl, err := walk.NewTextLabel(showingAboutDialog)
-	if err != nil {
-		return err
-	}
-	detailsLbl.SetTextAlignment(walk.AlignHCenterVNear)
-	detailsLbl.SetText(l18n.Sprintf("Версия: %s\nGo: %s\nСистема: %s\nАрхитектура: %s", version.Number, strings.TrimPrefix(runtime.Version(), "go"), version.OsName(), version.Arch()))
-	detailsLbl.SetTextColor(walk.RGB(176, 204, 231))
-
-	copyrightLbl, err := walk.NewTextLabel(showingAboutDialog)
-	if err != nil {
-		return err
-	}
-	copyrightFont, _ := walk.NewFont("Verdana", 7, 0)
-	if copyrightFont != nil {
-		defer copyrightFont.Dispose()
-	}
-	copyrightLbl.SetFont(copyrightFont)
-	copyrightLbl.SetTextAlignment(walk.AlignHCenterVNear)
-	copyrightLbl.SetText("Pinus Smart AWG.\nОсновано на AmneziaWG, WireGuard и amnezia-box.")
-	copyrightLbl.SetTextColor(walk.RGB(155, 188, 220))
-
-	buttonCP, err := walk.NewComposite(showingAboutDialog)
-	if err != nil {
-		return err
-	}
-	hbl := walk.NewHBoxLayout()
-	hbl.SetMargins(walk.Margins{VNear: 10})
-	buttonCP.SetLayout(hbl)
-	walk.NewHSpacer(buttonCP)
-	closePB, err := walk.NewPushButton(buttonCP)
-	if err != nil {
-		return err
-	}
-	closePB.SetAlignment(walk.AlignHCenterVNear)
-	closePB.SetText("Закрыть")
-	closePB.Clicked().Attach(showingAboutDialog.Accept)
-	_ = win.SetWindowTheme(closePB.Handle(), windows.StringToUTF16Ptr("DarkMode_Explorer"), nil)
-	walk.NewHSpacer(buttonCP)
-
-	showingAboutDialog.SetDefaultButton(closePB)
-	showingAboutDialog.SetCancelButton(closePB)
-
-	disposables.Spare()
-
-	showingAboutDialog.Run()
-
+	dialog.Run()
 	return nil
 }

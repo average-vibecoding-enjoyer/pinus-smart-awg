@@ -474,6 +474,8 @@ func (dashboard *Dashboard) activate(id string) {
 		dashboard.editRule(-1)
 	case "profiles:import":
 		dashboard.ImportProfiles()
+	case "profiles:buy":
+		openPinusVPNBot(dashboard.Form())
 	case "diagnostics:folder":
 		dashboard.openRuntimeFolder()
 	case "diagnostics:copy":
