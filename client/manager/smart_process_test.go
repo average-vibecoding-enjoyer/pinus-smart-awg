@@ -167,6 +167,41 @@ func TestStopSmartProcessStateRemovesRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestStoppingPreviousSmartProcessKeepsReplacementRuntimeConfig(t *testing.T) {
+	directory := t.TempDir()
+	previousPath, err := reserveSmartRuntimeConfig(directory, "tunnel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacementPath, err := reserveSmartRuntimeConfig(directory, "tunnel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if previousPath == replacementPath {
+		t.Fatalf("runtime config paths must be generation-specific: %q", previousPath)
+	}
+	if err := os.WriteFile(previousPath, []byte("previous"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(replacementPath, []byte("replacement"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := stopSmartProcessState(&smartProcessState{configPath: previousPath}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(previousPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("previous runtime config still exists: %v", err)
+	}
+	contents, err := os.ReadFile(replacementPath)
+	if err != nil {
+		t.Fatalf("replacement runtime config was removed: %v", err)
+	}
+	if string(contents) != "replacement" {
+		t.Fatalf("replacement runtime config = %q", contents)
+	}
+}
+
 func TestCleanupSmartConfigDirectoryRemovesOnlyRuntimeJSON(t *testing.T) {
 	directory := t.TempDir()
 	for name, contents := range map[string]string{

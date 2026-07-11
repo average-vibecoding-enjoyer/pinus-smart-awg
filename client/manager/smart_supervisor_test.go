@@ -50,6 +50,36 @@ func TestNormalizeSmartNetworkAddress(t *testing.T) {
 	}
 }
 
+func TestSelectSmartDefaultRouteIndexesIgnoresTunnelAndHigherMetrics(t *testing.T) {
+	selected := selectSmartDefaultRouteIndexes([]smartDefaultRouteCandidate{
+		{InterfaceIndex: 20, RouteMetric: 0, InterfaceMetric: 0, Up: true, Excluded: true},
+		{InterfaceIndex: 19, RouteMetric: 0, InterfaceMetric: 25, Up: true},
+		{InterfaceIndex: 21, RouteMetric: 0, InterfaceMetric: 100, Up: true},
+		{InterfaceIndex: 22, RouteMetric: 0, InterfaceMetric: 1, Up: false},
+	})
+	if len(selected) != 1 {
+		t.Fatalf("selected default-route interfaces = %v", selected)
+	}
+	if _, ok := selected[19]; !ok {
+		t.Fatalf("physical default route was not selected: %v", selected)
+	}
+}
+
+func TestSelectSmartDefaultRouteIndexesKeepsEqualCostRoutes(t *testing.T) {
+	selected := selectSmartDefaultRouteIndexes([]smartDefaultRouteCandidate{
+		{InterfaceIndex: 7, RouteMetric: 5, InterfaceMetric: 20, Up: true},
+		{InterfaceIndex: 8, RouteMetric: 10, InterfaceMetric: 15, Up: true},
+	})
+	if len(selected) != 2 {
+		t.Fatalf("equal-cost default routes = %v", selected)
+	}
+	for _, index := range []int{7, 8} {
+		if _, ok := selected[index]; !ok {
+			t.Fatalf("default route %d was not selected: %v", index, selected)
+		}
+	}
+}
+
 func TestSmartSupervisorRetriesAfterInjectedFailure(t *testing.T) {
 	var lock sync.Mutex
 	calls := 0

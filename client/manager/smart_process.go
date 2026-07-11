@@ -158,6 +158,21 @@ func rotateSmartLog(path string) error {
 	return os.Rename(path, previous)
 }
 
+// Each engine generation owns a distinct path so an older process cannot
+// remove the replacement config while it is shutting down.
+func reserveSmartRuntimeConfig(configDir, safeName string) (string, error) {
+	file, err := os.CreateTemp(configDir, safeName+"-*.json")
+	if err != nil {
+		return "", err
+	}
+	path := file.Name()
+	if err = file.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
 func smartPaths(tunnelName string) (configPath, logPath string, err error) {
 	root, err := smart.EnsureWorkDir()
 	if err != nil {
@@ -172,7 +187,11 @@ func smartPaths(tunnelName string) (configPath, logPath string, err error) {
 		return
 	}
 	safeName := smart.SafeTunnelFileStem(tunnelName)
-	return filepath.Join(configDir, safeName+".json"), filepath.Join(logDir, safeName+".log"), nil
+	configPath, err = reserveSmartRuntimeConfig(configDir, safeName)
+	if err != nil {
+		return "", "", err
+	}
+	return configPath, filepath.Join(logDir, safeName+".log"), nil
 }
 
 func cleanupSmartConfigDirectory(configDir string) error {
@@ -346,15 +365,15 @@ func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.Rout
 	if err != nil {
 		return err
 	}
-	if err = os.WriteFile(configPath, append(configBytes, '\n'), 0600); err != nil {
-		return err
-	}
 	keepConfig := false
 	defer func() {
 		if !keepConfig {
 			_ = os.Remove(configPath)
 		}
 	}()
+	if err = os.WriteFile(configPath, append(configBytes, '\n'), 0600); err != nil {
+		return err
+	}
 	enginePath, err := smart.FindEnginePath()
 	if err != nil {
 		return err

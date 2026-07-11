@@ -16,7 +16,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/amnezia-vpn/amneziawg-windows-client/smart"
+	"github.com/amnezia-vpn/amneziawg-windows/tunnel/winipcfg"
 )
 
 var errSmartNetworkUnavailable = errors.New("no usable physical network is available")
@@ -259,6 +262,85 @@ type smartNetworkRecord struct {
 	Addresses []string
 }
 
+type smartDefaultRouteCandidate struct {
+	InterfaceIndex  int
+	RouteMetric     uint32
+	InterfaceMetric uint32
+	Up              bool
+	Excluded        bool
+}
+
+func selectSmartDefaultRouteIndexes(candidates []smartDefaultRouteCandidate) map[int]struct{} {
+	selected := make(map[int]struct{})
+	lowestMetric := ^uint64(0)
+	for _, candidate := range candidates {
+		if candidate.InterfaceIndex <= 0 || !candidate.Up || candidate.Excluded {
+			continue
+		}
+		metric := uint64(candidate.RouteMetric) + uint64(candidate.InterfaceMetric)
+		if metric < lowestMetric {
+			clear(selected)
+			lowestMetric = metric
+		}
+		if metric == lowestMetric {
+			selected[candidate.InterfaceIndex] = struct{}{}
+		}
+	}
+	return selected
+}
+
+func smartDefaultRouteIndexesForFamily(family winipcfg.AddressFamily) (map[int]struct{}, error) {
+	routes, err := winipcfg.GetIPForwardTable2(family)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]smartDefaultRouteCandidate, 0, len(routes))
+	for i := range routes {
+		route := &routes[i]
+		if route.DestinationPrefix.PrefixLength != 0 {
+			continue
+		}
+		ifRow, ifErr := route.InterfaceLUID.Interface()
+		if ifErr != nil {
+			continue
+		}
+		ipInterface, ifErr := route.InterfaceLUID.IPInterface(family)
+		if ifErr != nil {
+			continue
+		}
+		candidates = append(candidates, smartDefaultRouteCandidate{
+			InterfaceIndex:  int(route.InterfaceIndex),
+			RouteMetric:     route.Metric,
+			InterfaceMetric: ipInterface.Metric,
+			Up:              ifRow.OperStatus == winipcfg.IfOperStatusUp,
+			Excluded: strings.EqualFold(ifRow.Alias(), smart.TunInterfaceName) ||
+				ifRow.Type == winipcfg.IfTypeTunnel || ifRow.Type == winipcfg.IfTypeSoftwareLoopback,
+		})
+	}
+	return selectSmartDefaultRouteIndexes(candidates), nil
+}
+
+func smartDefaultRouteIndexes() (map[int]struct{}, error) {
+	selected := make(map[int]struct{})
+	var resultErr error
+	successfulFamilies := 0
+	for _, family := range []winipcfg.AddressFamily{windows.AF_INET, windows.AF_INET6} {
+		indexes, err := smartDefaultRouteIndexesForFamily(family)
+		if err != nil {
+			resultErr = errors.Join(resultErr, err)
+			continue
+		}
+		successfulFamilies++
+		for index := range indexes {
+			selected[index] = struct{}{}
+		}
+	}
+	if successfulFamilies == 0 {
+		return nil, resultErr
+	}
+	return selected, nil
+}
+
 func normalizeSmartNetworkAddress(value string) string {
 	ip, network, err := net.ParseCIDR(value)
 	if err != nil || ip.IsUnspecified() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsMulticast() {
@@ -291,6 +373,10 @@ func smartNetworkFingerprintFromRecords(records []smartNetworkRecord) string {
 }
 
 func physicalSmartNetwork() (string, bool, error) {
+	defaultRouteIndexes, err := smartDefaultRouteIndexes()
+	if err != nil {
+		return "", false, err
+	}
 	interfaces, err := net.Interfaces()
 	if err != nil {
 		return "", false, err
@@ -298,6 +384,9 @@ func physicalSmartNetwork() (string, bool, error) {
 	records := make([]smartNetworkRecord, 0, len(interfaces))
 	for _, iface := range interfaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 || strings.EqualFold(iface.Name, smart.TunInterfaceName) {
+			continue
+		}
+		if _, isDefaultRoute := defaultRouteIndexes[iface.Index]; !isDefaultRoute {
 			continue
 		}
 		addresses, addrErr := iface.Addrs()
