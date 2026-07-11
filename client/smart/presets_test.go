@@ -191,7 +191,8 @@ func TestUpdateServiceCatalogRejectsRevisionReuse(t *testing.T) {
 }
 
 func TestCommittedPresetEnvelopeMatchesProductionKey(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "presets", "catalog.signed.json"))
+	presetDirectory := filepath.Join("..", "..", "presets")
+	data, err := os.ReadFile(filepath.Join(presetDirectory, "catalog.signed.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,6 +206,17 @@ func TestCommittedPresetEnvelopeMatchesProductionKey(t *testing.T) {
 	}
 	if payload.Revision != 2 || !reflect.DeepEqual(payload.Services, BuiltinServiceCatalog()) {
 		t.Fatalf("unexpected committed preset catalog: revision=%d services=%d", payload.Revision, len(payload.Services))
+	}
+	source, err := os.ReadFile(filepath.Join(presetDirectory, "catalog.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourcePayload, err := ValidatePresetPayload(source, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(sourcePayload, payload) {
+		t.Fatal("signed preset payload does not match presets/catalog.json")
 	}
 }
 

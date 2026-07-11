@@ -188,6 +188,7 @@ function Sign-Artifact([string]$Path) {
     }
 }
 
+& (Join-Path $Root "scripts\scan-secrets.ps1")
 $Go = Resolve-Go
 $VersionSource = Get-Content -LiteralPath (Join-Path $Client "version\version.go") -Raw
 if ($VersionSource -notmatch 'Number\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"') {
@@ -271,6 +272,7 @@ try {
     Push-Location $Client
     try {
         Invoke-Go $Go @("test", "-count=1", "./...")
+        Invoke-Go $Go @("vet", "-composites=false", "-unsafeptr=false", "./...")
         Invoke-Go $Go @("run", "golang.org/x/vuln/cmd/govulncheck@$GovulncheckVersion", "./...")
         Get-ChildItem -Filter "resource_windows_*.syso" -ErrorAction SilentlyContinue | Remove-Item -Force
         Invoke-Go $Go @("run", "github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0", "-platform-specific", "versioninfo.json")
@@ -281,6 +283,7 @@ try {
     Push-Location $Core
     try {
         Invoke-Go $Go @("test", "-count=1", "./...")
+        Invoke-Go $Go @("vet", "-composites=false", "-unsafeptr=false", "./...")
         Invoke-Go $Go @("run", "golang.org/x/vuln/cmd/govulncheck@$GovulncheckVersion", "./...")
     } finally {
         Pop-Location

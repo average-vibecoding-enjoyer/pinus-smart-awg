@@ -190,3 +190,17 @@ func TestSmartSupervisorHealthySignalCancelsPendingRecovery(t *testing.T) {
 	case <-time.After(150 * time.Millisecond):
 	}
 }
+
+func TestResumeClearsSuspendedStateAndForcesDelayedRebind(t *testing.T) {
+	smartSystemSuspended.Store(true)
+	defer smartSystemSuspended.Store(false)
+	var reason string
+	var force bool
+	var delay time.Duration
+	resumeSmartAfterSuspendWith(func(gotReason string, gotForce bool, gotDelay time.Duration) {
+		reason, force, delay = gotReason, gotForce, gotDelay
+	})
+	if smartSystemSuspended.Load() || reason != "system resumed" || !force || delay != 2*time.Second {
+		t.Fatalf("resume recovery = suspended:%v reason:%q force:%v delay:%s", smartSystemSuspended.Load(), reason, force, delay)
+	}
+}

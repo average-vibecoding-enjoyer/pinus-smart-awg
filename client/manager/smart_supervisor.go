@@ -412,6 +412,10 @@ func pauseSmartForSuspend() error {
 }
 
 func resumeSmartAfterSuspend() {
+	resumeSmartAfterSuspendWith(requestSmartRecovery)
+}
+
+func resumeSmartAfterSuspendWith(request func(reason string, force bool, delay time.Duration)) {
 	smartSystemSuspended.Store(false)
-	requestSmartRecovery("system resumed", true, 2*time.Second)
+	request("system resumed", true, 2*time.Second)
 }

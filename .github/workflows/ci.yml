@@ -21,6 +21,10 @@ jobs:
             client/go.sum
             core/go.sum
 
+      - name: Scan tracked files for secrets
+        shell: pwsh
+        run: ./scripts/scan-secrets.ps1
+
       - name: Test client
         working-directory: client
         run: go test -count=1 ./...
@@ -28,6 +32,14 @@ jobs:
       - name: Test core
         working-directory: core
         run: go test -count=1 ./...
+
+      - name: Vet client
+        working-directory: client
+        run: go vet -composites=false -unsafeptr=false ./...
+
+      - name: Vet core
+        working-directory: core
+        run: go vet -composites=false -unsafeptr=false ./...
 
       - name: Build x64 release smoke test
         shell: pwsh

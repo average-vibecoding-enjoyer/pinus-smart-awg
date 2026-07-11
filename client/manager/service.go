@@ -339,18 +339,7 @@ loop:
 					procsLock.Unlock()
 				}
 			case svc.PowerEvent:
-				switch c.EventType {
-				case pbtAPMSuspend:
-					log.Println("System suspend detected; pausing smart routing while preserving desired state")
-					go func() {
-						if pauseErr := pauseSmartForSuspend(); pauseErr != nil {
-							log.Printf("Unable to pause smart routing for suspend: %v", pauseErr)
-						}
-					}()
-				case pbtAPMResumeSuspend, pbtAPMResumeAuto:
-					log.Println("System resume detected; scheduling smart route recovery")
-					resumeSmartAfterSuspend()
-				}
+				handleSmartPowerEvent(c.EventType, func(operation func()) { go operation() }, pauseSmartForSuspend, resumeSmartAfterSuspend)
 
 			default:
 				log.Printf("Unexpected service control request #%d", c)
