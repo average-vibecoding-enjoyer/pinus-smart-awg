@@ -16,31 +16,31 @@ import (
 
 func TestThreads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "ringlogger_test.bin")
-	wg := sync.WaitGroup{}
+	var wg sync.WaitGroup
+	errs := make(chan error, 2)
+	writeRange := func(tag string, first, last int) {
+		defer wg.Done()
+		rl, err := NewRinglogger(path, tag)
+		if err != nil {
+			errs <- fmt.Errorf("create %s ringlogger: %w", tag, err)
+			return
+		}
+		defer rl.Close()
+		for i := first; i < last; i++ {
+			if _, err := fmt.Fprintf(rl, "bla bla bla %d", i); err != nil {
+				errs <- fmt.Errorf("write %s ringlogger: %w", tag, err)
+				return
+			}
+		}
+	}
 	wg.Add(2)
-	go func() {
-		rl, err := NewRinglogger(path, "ONE")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for i := 0; i < 1024; i++ {
-			fmt.Fprintf(rl, "bla bla bla %d", i)
-		}
-		rl.Close()
-		wg.Done()
-	}()
-	go func() {
-		rl, err := NewRinglogger(path, "TWO")
-		if err != nil {
-			t.Fatal(err)
-		}
-		for i := 1024; i < 2047; i++ {
-			fmt.Fprintf(rl, "bla bla bla %d", i)
-		}
-		rl.Close()
-		wg.Done()
-	}()
+	go writeRange("ONE", 0, 1024)
+	go writeRange("TWO", 1024, 2047)
 	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Error(err)
+	}
 }
 
 func TestWriteText(t *testing.T) {

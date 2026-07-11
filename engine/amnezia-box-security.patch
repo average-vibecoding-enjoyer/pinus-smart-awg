@@ -1,0 +1,136 @@
+diff --git a/go.mod b/go.mod
+index 00d1525..fc89959 100644
+--- a/go.mod
++++ b/go.mod
+@@ -1,6 +1,6 @@
+ module github.com/sagernet/sing-box
+ 
+-go 1.24.7
++go 1.25.0
+ 
+ require (
+ 	github.com/amnezia-vpn/amneziawg-go v0.2.17-0.20251219021448-449d7cffd4ad
+@@ -51,12 +51,12 @@ require (
+ 	github.com/vishvananda/netns v0.0.5
+ 	go.uber.org/zap v1.27.1
+ 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
+-	golang.org/x/crypto v0.48.0
++	golang.org/x/crypto v0.54.0
+ 	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93
+-	golang.org/x/mod v0.33.0
+-	golang.org/x/net v0.50.0
+-	golang.org/x/sync v0.19.0
+-	golang.org/x/sys v0.41.0
++	golang.org/x/mod v0.37.0
++	golang.org/x/net v0.57.0
++	golang.org/x/sync v0.22.0
++	golang.org/x/sys v0.47.0
+ 	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
+ 	google.golang.org/grpc v1.79.1
+ 	google.golang.org/protobuf v1.36.11
+@@ -157,10 +157,10 @@ require (
+ 	go.uber.org/zap/exp v0.3.0 // indirect
+ 	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
+ 	golang.org/x/oauth2 v0.34.0 // indirect
+-	golang.org/x/term v0.40.0 // indirect
+-	golang.org/x/text v0.34.0 // indirect
++	golang.org/x/term v0.45.0 // indirect
++	golang.org/x/text v0.40.0 // indirect
+ 	golang.org/x/time v0.11.0 // indirect
+-	golang.org/x/tools v0.42.0 // indirect
++	golang.org/x/tools v0.47.0 // indirect
+ 	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
+ 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
+ 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
+diff --git a/protocol/awg/endpoint.go b/protocol/awg/endpoint.go
+index 39213ad..9ebc1df 100644
+--- a/protocol/awg/endpoint.go
++++ b/protocol/awg/endpoint.go
+@@ -6,6 +6,7 @@ import (
+ 	"encoding/hex"
+ 	"net"
+ 	"net/netip"
++	"time"
+ 
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing-box/adapter/endpoint"
+@@ -86,11 +87,13 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
+ 	var resolvePeer func(domain string) (netip.Addr, error)
+ 	if remoteIsDomain {
+ 		resolvePeer = func(domain string) (netip.Addr, error) {
+-			addrs, lookupErr := net.DefaultResolver.LookupNetIP(ctx, "ip", domain)
++			resolveContext, cancel := context.WithTimeout(ctx, 8*time.Second)
++			defer cancel()
++			addrs, lookupErr := net.DefaultResolver.LookupNetIP(resolveContext, "ip", domain)
+ 			if lookupErr != nil {
+ 				return netip.Addr{}, lookupErr
+ 			}
+-			return addrs[0], nil
++			return selectPeerAddress(addrs)
+ 		}
+ 	}
+ 
+@@ -122,6 +125,22 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
+ 	}, nil
+ }
+ 
++func selectPeerAddress(addresses []netip.Addr) (netip.Addr, error) {
++	for _, address := range addresses {
++		address = address.Unmap()
++		if address.Is4() {
++			return address, nil
++		}
++	}
++	for _, address := range addresses {
++		address = address.Unmap()
++		if address.Is6() {
++			return address, nil
++		}
++	}
++	return netip.Addr{}, E.New("peer hostname resolved without a usable IP address")
++}
++
+ func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string) (netip.Addr, error)) (string, error) {
+ 	privateKeyBytes, err := base64.StdEncoding.DecodeString(opts.PrivateKey)
+ 	if err != nil {
+diff --git a/protocol/awg/endpoint_test.go b/protocol/awg/endpoint_test.go
+new file mode 100644
+index 0000000..8b61e2f
+--- /dev/null
++++ b/protocol/awg/endpoint_test.go
+@@ -0,0 +1,35 @@
++package awg
++
++import (
++	"net/netip"
++	"testing"
++)
++
++func TestSelectPeerAddressPrefersIPv4(t *testing.T) {
++	selected, err := selectPeerAddress([]netip.Addr{
++		netip.MustParseAddr("2001:db8::1"),
++		netip.MustParseAddr("192.0.2.10"),
++	})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if selected.String() != "192.0.2.10" {
++		t.Fatalf("selected %v, want IPv4", selected)
++	}
++}
++
++func TestSelectPeerAddressFallsBackToIPv6(t *testing.T) {
++	selected, err := selectPeerAddress([]netip.Addr{netip.MustParseAddr("2001:db8::1")})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if selected.String() != "2001:db8::1" {
++		t.Fatalf("selected %v, want IPv6", selected)
++	}
++}
++
++func TestSelectPeerAddressRejectsEmptyAnswer(t *testing.T) {
++	if _, err := selectPeerAddress(nil); err == nil {
++		t.Fatal("empty DNS answer was accepted")
++	}
++}

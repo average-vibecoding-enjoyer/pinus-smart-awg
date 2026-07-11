@@ -31,6 +31,16 @@ var cachedServiceManager *mgr.Mgr
 
 const managerServiceName = "PinusAWGNextManager"
 
+const managerRecoveryResetSeconds = 24 * 60 * 60
+
+func managerRecoveryActions() []mgr.RecoveryAction {
+	return []mgr.RecoveryAction{
+		{Type: mgr.ServiceRestart, Delay: 2 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 5 * time.Second},
+		{Type: mgr.ServiceRestart, Delay: 15 * time.Second},
+	}
+}
+
 // wintunDLLSHA256 is replaced at link time by the multi-architecture release
 // builder. The default is the official Wintun 0.14.1 amd64 DLL.
 var wintunDLLSHA256 = "E5DA8447DC2C320EDC0FC52FA01885C103DE8C118481F683643CACC3220DAFCE"
@@ -293,6 +303,7 @@ func InstallManagerFrom(path string) error {
 		ServiceType:  windows.SERVICE_WIN32_OWN_PROCESS,
 		StartType:    mgr.StartAutomatic,
 		ErrorControl: mgr.ErrorNormal,
+		Dependencies: []string{"Nsi", "TcpIp"},
 		DisplayName:  "Pinus Smart AWG Manager",
 	}
 
@@ -300,27 +311,42 @@ func InstallManagerFrom(path string) error {
 	if err != nil {
 		return err
 	}
-	service.Start()
+	if err = service.SetRecoveryActions(managerRecoveryActions(), managerRecoveryResetSeconds); err != nil {
+		_ = service.Delete()
+		_ = service.Close()
+		return fmt.Errorf("configure manager recovery actions: %w", err)
+	}
+	if err = service.SetRecoveryActionsOnNonCrashFailures(true); err != nil {
+		_ = service.Delete()
+		_ = service.Close()
+		return fmt.Errorf("configure manager non-crash recovery: %w", err)
+	}
+	err = service.Start()
+	if err != nil {
+		_ = service.Close()
+		return err
+	}
 	return service.Close()
 }
 
 func UninstallManager() error {
+	desiredErr := clearSmartDesired()
 	m, err := serviceManager()
 	if err != nil {
-		return err
+		return errors.Join(desiredErr, err)
 	}
 	serviceName := managerServiceName
 	service, err := m.OpenService(serviceName)
 	if err != nil {
-		return err
+		return errors.Join(desiredErr, err)
 	}
 	service.Control(svc.Stop)
 	err = service.Delete()
 	err2 := service.Close()
 	if err != nil {
-		return err
+		return errors.Join(desiredErr, err)
 	}
-	return err2
+	return errors.Join(desiredErr, err2)
 }
 
 func uninstallServiceIfPresent(m *mgr.Mgr, name string) error {
@@ -385,16 +411,20 @@ func removeOtherInstalledVersions() error {
 // UninstallAllServices removes every service owned by this application. User
 // profiles remain in the protected data directory so reinstalling is safe.
 func UninstallAllServices() error {
+	desiredErr := clearSmartDesired()
 	m, err := serviceManager()
 	if err != nil {
-		return err
+		return errors.Join(desiredErr, err)
 	}
 	names, err := m.ListServices()
 	if err != nil {
-		return err
+		return errors.Join(desiredErr, err)
 	}
 
 	var uninstallErrors []error
+	if desiredErr != nil {
+		uninstallErrors = append(uninstallErrors, desiredErr)
+	}
 	for _, name := range names {
 		if !strings.HasPrefix(name, "PinusAWGNextTunnel$") {
 			continue

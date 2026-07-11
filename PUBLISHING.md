@@ -7,6 +7,38 @@
 2. Добавьте его как `origin` и отправьте ветку `main`.
 3. Убедитесь, что GitHub Actions `CI` завершился успешно.
 
+## Подписанные пресеты маршрутизации
+
+Клиент принимает сетевые пресеты только после проверки встроенным публичным
+ключом Ed25519. Приватный ключ не хранится в репозитории: локальный инструмент
+шифрует seed через Windows DPAPI, поэтому использовать его может только тот же
+пользователь Windows на этом компьютере.
+
+Первичная генерация ключа выполняется один раз:
+
+```powershell
+cd client
+go run ./cmd/preset-sign -mode generate `
+  -key "$env:USERPROFILE\.pinusvpn-signing\preset-ed25519.dpapi"
+```
+
+Для обновления увеличьте ревизию, сформируйте payload и подпишите его:
+
+```powershell
+go run ./cmd/preset-sign -mode export -revision 3 `
+  -published-at "2026-07-11T15:30:00Z" `
+  -output "..\presets\catalog.json"
+go run ./cmd/preset-sign -mode sign `
+  -key "$env:USERPROFILE\.pinusvpn-signing\preset-ed25519.dpapi" `
+  -input "..\presets\catalog.json" `
+  -output "..\presets\catalog.signed.json"
+go test ./smart
+```
+
+Коммитьте оба файла из `presets/`. Никогда не добавляйте `.dpapi`-ключ. Клиент
+не принимает откат ревизии, неизвестные поля, опасные системные процессы,
+некорректные домены, слишком большой payload или неверную подпись.
+
 ## Релиз
 
 1. Обновите номер в `client/version/version.go`, `client/versioninfo.json`,

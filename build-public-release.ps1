@@ -13,10 +13,17 @@ $Core = Join-Path $Root "core"
 $Cache = Join-Path $Root ".cache"
 $Build = Join-Path $Root ".build"
 $Release = Join-Path $Root "release"
+$GoVersion = "1.26.5"
+$GoURL = "https://go.dev/dl/go$GoVersion.windows-amd64.zip"
+$GoArchiveSHA256 = "97E6B2A833B6D89F9FF17D25419AC0A7E3B482A044E9AB18CDEF834BD834FD38"
 $EngineRepository = "https://github.com/hoaxisr/amnezia-box.git"
 $EngineTag = "v1.13.13-awg2.1"
 $EngineCommit = "f40548f91a14582975096d0310e3c6afd44656f8"
 $EngineTags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_awg"
+$EnginePatch = Join-Path $Root "engine\amnezia-box-security.patch"
+$EnginePatchSHA256 = "C4974F58E7598062C50842557F26F979AEFB74C35BE1A142E743D862CB1A6A3F"
+$EnginePatchedGoSumSHA256 = "4E8BC0FAB40415381BD1E679B7B6C6DD7E2284B13F3F9EE26712ADD8BF8E60A4"
+$GovulncheckVersion = "v1.6.0"
 $WintunURL = "https://www.wintun.net/builds/wintun-0.14.1.zip"
 $WintunArchiveSHA256 = "07C256185D6EE3652E09FA55C0B673E2624B565E02C4B9091C79CA7D2F24EF51"
 $WixURL = "https://github.com/wixtoolset/wix3/releases/download/wix3141rtm/wix314-binaries.zip"
@@ -80,15 +87,39 @@ function Get-VerifiedDownload([string]$URL, [string]$Destination, [string]$Expec
     Move-Item -LiteralPath $temporary -Destination $Destination
 }
 
+function Assert-GoVersion([string]$Go) {
+    $actual = (& $Go version).Trim()
+    if ($LASTEXITCODE -ne 0 -or $actual -notmatch "^go version go$([regex]::Escape($GoVersion)) ") {
+        throw "Pinus Smart AWG requires Go $GoVersion exactly. Got: $actual"
+    }
+}
+
 function Resolve-Go {
     if ($env:PINUS_GO -and (Test-Path -LiteralPath $env:PINUS_GO)) {
-        return (Resolve-Path -LiteralPath $env:PINUS_GO).Path
+        $go = (Resolve-Path -LiteralPath $env:PINUS_GO).Path
+        Assert-GoVersion $go
+        return $go
     }
     $command = Get-Command go.exe -ErrorAction SilentlyContinue
     if ($command) {
-        return $command.Source
+        try {
+            Assert-GoVersion $command.Source
+            return $command.Source
+        } catch {
+            Write-Host "Ignoring non-pinned system Go: $($_.Exception.Message)"
+        }
     }
-    throw "Go was not found. Install Go 1.26.4 or set PINUS_GO to go.exe."
+
+    $archive = Join-Path $Cache "go$GoVersion.windows-amd64.zip"
+    Get-VerifiedDownload $GoURL $archive $GoArchiveSHA256
+    $toolchainRoot = Join-Path $Cache "go$GoVersion"
+    $go = Join-Path $toolchainRoot "go\bin\go.exe"
+    if (-not (Test-Path -LiteralPath $go)) {
+        Reset-Directory $toolchainRoot
+        Expand-Archive -LiteralPath $archive -DestinationPath $toolchainRoot
+    }
+    Assert-GoVersion $go
+    return $go
 }
 
 function Invoke-Go([string]$Go, [string[]]$Arguments) {
@@ -157,6 +188,7 @@ function Sign-Artifact([string]$Path) {
     }
 }
 
+& (Join-Path $Root "scripts\scan-secrets.ps1")
 $Go = Resolve-Go
 $VersionSource = Get-Content -LiteralPath (Join-Path $Client "version\version.go") -Raw
 if ($VersionSource -notmatch 'Number\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"') {
@@ -181,7 +213,8 @@ $EngineSource = Join-Path $Cache "amnezia-box"
 $engineReady = Test-Path -LiteralPath (Join-Path $EngineSource ".git")
 if ($engineReady) {
     $currentCommit = (& git -C $EngineSource rev-parse HEAD).Trim()
-    $engineReady = $LASTEXITCODE -eq 0 -and $currentCommit -eq $EngineCommit
+    $workingTree = (& git -C $EngineSource status --porcelain | Out-String).Trim()
+    $engineReady = $LASTEXITCODE -eq 0 -and $currentCommit -eq $EngineCommit -and $workingTree.Length -eq 0
 }
 if (-not $engineReady) {
     if (Test-Path -LiteralPath $EngineSource) {
@@ -196,6 +229,26 @@ if (-not $engineReady) {
 $currentCommit = (& git -C $EngineSource rev-parse HEAD).Trim()
 if ($LASTEXITCODE -ne 0 -or $currentCommit -ne $EngineCommit) {
     throw "amnezia-box commit mismatch: $currentCommit"
+}
+if ((Get-SHA256 $EnginePatch) -ne $EnginePatchSHA256) {
+    throw "amnezia-box security patch SHA-256 mismatch."
+}
+& git -C $EngineSource apply --check $EnginePatch
+if ($LASTEXITCODE -ne 0) {
+    throw "amnezia-box security patch no longer applies cleanly."
+}
+& git -C $EngineSource apply $EnginePatch
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to apply the amnezia-box security patch."
+}
+Push-Location $EngineSource
+try {
+    Invoke-Go $Go @("mod", "tidy")
+} finally {
+    Pop-Location
+}
+if ((Get-SHA256 (Join-Path $EngineSource "go.sum")) -ne $EnginePatchedGoSumSHA256) {
+    throw "Patched amnezia-box go.sum is not reproducible."
 }
 
 if (-not $SkipInstallers) {
@@ -219,6 +272,8 @@ try {
     Push-Location $Client
     try {
         Invoke-Go $Go @("test", "-count=1", "./...")
+        Invoke-Go $Go @("vet", "-composites=false", "-unsafeptr=false", "./...")
+        Invoke-Go $Go @("run", "golang.org/x/vuln/cmd/govulncheck@$GovulncheckVersion", "./...")
         Get-ChildItem -Filter "resource_windows_*.syso" -ErrorAction SilentlyContinue | Remove-Item -Force
         Invoke-Go $Go @("run", "github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0", "-platform-specific", "versioninfo.json")
     } finally {
@@ -228,6 +283,8 @@ try {
     Push-Location $Core
     try {
         Invoke-Go $Go @("test", "-count=1", "./...")
+        Invoke-Go $Go @("vet", "-composites=false", "-unsafeptr=false", "./...")
+        Invoke-Go $Go @("run", "golang.org/x/vuln/cmd/govulncheck@$GovulncheckVersion", "./...")
     } finally {
         Pop-Location
     }
@@ -236,6 +293,15 @@ try {
     & git -C $EngineSource archive --format=zip "--output=$EngineArchive" HEAD
     if ($LASTEXITCODE -ne 0) {
         throw "Unable to create the corresponding amnezia-box source archive."
+    }
+    $EnginePatchAsset = Join-Path $Release "amnezia-box-security-$EnginePatchSHA256.patch"
+    Copy-Item -LiteralPath $EnginePatch -Destination $EnginePatchAsset
+    Push-Location $EngineSource
+    try {
+        Invoke-Go $Go @("test", "-count=1", "-tags", $EngineTags, ".\cmd\sing-box")
+        Invoke-Go $Go @("run", "golang.org/x/vuln/cmd/govulncheck@$GovulncheckVersion", "-tags", $EngineTags, ".\cmd\sing-box")
+    } finally {
+        Pop-Location
     }
 
     $manifestArchitectures = @()
@@ -337,6 +403,9 @@ try {
             tag = $EngineTag
             commit = $EngineCommit
             build_tags = $EngineTags
+            security_patch = [IO.Path]::GetFileName($EnginePatchAsset)
+            security_patch_sha256 = $EnginePatchSHA256
+            patched_go_sum_sha256 = $EnginePatchedGoSumSHA256
         }
         wintun = [ordered]@{
             version = "0.14.1"

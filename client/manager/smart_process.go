@@ -256,6 +256,17 @@ func smartAnyStarted() bool {
 	return smartProcess != nil && smartProcess.process != nil
 }
 
+func smartProcessHealthyFor(tunnelName string) bool {
+	smartProcessLock.Lock()
+	running := smartProcess != nil && smartProcess.process != nil && strings.EqualFold(smartProcess.tunnelName, tunnelName)
+	smartProcessLock.Unlock()
+	if !running {
+		return false
+	}
+	interfaze, err := net.InterfaceByName(smart.TunInterfaceName)
+	return err == nil && interfaze != nil && interfaze.Flags&net.FlagUp != 0
+}
+
 func smartStopUnlocked() error {
 	smartProcessLock.Lock()
 	state := detachSmartProcessLocked()
@@ -293,17 +304,35 @@ func (s *ManagerService) SmartStart(tunnelName, rawSettings string) error {
 	if s.elevatedToken == 0 {
 		return windows.ERROR_ACCESS_DENIED
 	}
-	smartLifecycleLock.Lock()
-	defer smartLifecycleLock.Unlock()
 	settings, err := smart.ParseSettingsPayload(rawSettings)
 	if err != nil {
 		return err
 	}
+	smartLifecycleLock.Lock()
+	defer smartLifecycleLock.Unlock()
+	err = s.smartStartLocked(tunnelName, settings, true)
+	if err != nil {
+		requestSmartRecovery("manual start failed", false, 500*time.Millisecond)
+	}
+	return err
+}
+
+func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.RoutingSettings, persistDesired bool) error {
 	if usesNativeTunnel(settings) {
 		if err := smartStopUnlocked(); err != nil {
 			return fmt.Errorf("stop smart routing before native tunnel: %w", err)
 		}
-		return s.Start(tunnelName)
+		if err := s.Start(tunnelName); err != nil {
+			return err
+		}
+		if persistDesired {
+			if err := clearSmartDesired(); err != nil {
+				_ = s.stopNativeTunnel(tunnelName)
+				return fmt.Errorf("clear smart recovery state: %w", err)
+			}
+			markSmartRecoveryHealthy()
+		}
+		return nil
 	}
 	c, err := conf.LoadFromName(tunnelName)
 	if err != nil {
@@ -343,27 +372,14 @@ func (s *ManagerService) SmartStart(tunnelName, rawSettings string) error {
 	priorState, priorStateErr := s.State(tunnelName)
 	nativeWasRunning := !priorSmartActive && priorStateErr == nil && (priorState == TunnelStarted || priorState == TunnelStarting)
 
-	names, _ := conf.ListConfigNames()
-	for _, name := range names {
-		stopErr := UninstallTunnel(name)
-		if stopErr != nil && stopErr != windows.ERROR_SERVICE_DOES_NOT_EXIST && stopErr != windows.ERROR_SERVICE_MARKED_FOR_DELETE {
-			return fmt.Errorf("stop native tunnel %q: %w", name, stopErr)
-		}
-	}
-	for _, name := range names {
-		if waitErr := s.WaitForStop(name); waitErr != nil {
-			return waitErr
-		}
+	if err := s.stopAllNativeTunnels(); err != nil {
+		return err
 	}
 	restoreNative := func(cause error) error {
 		if !nativeWasRunning {
 			return cause
 		}
-		path, pathErr := c.Path()
-		if pathErr != nil {
-			return errors.Join(cause, fmt.Errorf("restore native AWG path: %w", pathErr))
-		}
-		if restoreErr := InstallTunnel(path); restoreErr != nil {
+		if restoreErr := s.Start(tunnelName); restoreErr != nil {
 			return errors.Join(cause, fmt.Errorf("restore native AWG: %w", restoreErr))
 		}
 		return fmt.Errorf("%w; native AWG was restored", cause)
@@ -442,9 +458,17 @@ func (s *ManagerService) SmartStart(tunnelName, rawSettings string) error {
 		return restoreNative(fmt.Errorf("start smart engine: %w", readyErr))
 	}
 
+	if persistDesired {
+		if err = saveSmartDesired(tunnelName, settings); err != nil {
+			_ = stopSmartProcessState(state)
+			IPCServerNotifyTunnelChange(tunnelName, TunnelStopped, err)
+			return fmt.Errorf("persist smart recovery state: %w", err)
+		}
+	}
 	smartProcessLock.Lock()
 	smartProcess = state
 	smartProcessLock.Unlock()
+	markSmartRecoveryHealthy()
 	keepConfig = true
 	// sing-box has parsed the file by this point. Remove the on-disk copy of
 	// the private key; a failed deletion is retried when the process stops.
@@ -463,6 +487,7 @@ func (s *ManagerService) SmartStart(tunnelName, rawSettings string) error {
 				log.Printf("[%s] smart engine stopped: %v", expectedState.tunnelName, waitErr)
 			}
 			IPCServerNotifyTunnelChange(expectedState.tunnelName, TunnelStopped, waitErr)
+			requestSmartRecovery("engine exited", false, 500*time.Millisecond)
 			return
 		}
 		smartProcessLock.Unlock()
@@ -475,5 +500,10 @@ func (s *ManagerService) SmartStop() error {
 	if s.elevatedToken == 0 {
 		return windows.ERROR_ACCESS_DENIED
 	}
-	return smartStop()
+	smartLifecycleLock.Lock()
+	defer smartLifecycleLock.Unlock()
+	desiredErr := clearSmartDesired()
+	stopErr := smartStopUnlocked()
+	markSmartRecoveryHealthy()
+	return errors.Join(desiredErr, stopErr)
 }

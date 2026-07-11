@@ -92,67 +92,43 @@ func (s *ManagerService) Start(tunnelName string) error {
 	if err != nil {
 		return err
 	}
-
-	// Figure out which tunnels have intersecting addresses/routes and stop those.
-	trackedTunnelsLock.Lock()
-	tt := make([]string, 0, len(trackedTunnels))
-	var inTransition string
-	for t, state := range trackedTunnels {
-		c2, err := conf.LoadFromName(t)
-		if err != nil || !c.IntersectsWith(c2) {
-			// If we can't get the config, assume it doesn't intersect.
-			continue
-		}
-		tt = append(tt, t)
-		if len(t) > 0 && (state == TunnelStarting || state == TunnelUnknown) {
-			inTransition = t
-			break
-		}
-	}
-	trackedTunnelsLock.Unlock()
-	if len(inTransition) != 0 {
-		return fmt.Errorf("Please allow the tunnel ‘%s’ to finish activating", inTransition)
-	}
-
-	// Stop those intersecting tunnels asynchronously.
-	go func() {
-		for _, t := range tt {
-			s.Stop(t)
-		}
-		for _, t := range tt {
-			state, err := s.State(t)
-			if err == nil && (state == TunnelStarted || state == TunnelStarting) {
-				log.Printf("[%s] Trying again to stop zombie tunnel", t)
-				s.Stop(t)
-				time.Sleep(time.Millisecond * 100)
-			}
-		}
-	}()
-	// After the stop process has begun, but before it's finished, we install the new one.
 	path, err := c.Path()
 	if err != nil {
 		return err
 	}
-	return InstallTunnel(path)
+	if smartAnyStarted() {
+		return errors.New("smart routing is active; stop it before starting a native tunnel")
+	}
+
+	nativeLifecycleLock.Lock()
+	defer nativeLifecycleLock.Unlock()
+	states, err := s.nativeTunnelStates()
+	if err != nil {
+		return err
+	}
+	plan := planNativeSwitch(tunnelName, states)
+	switchErr := executeNativeSwitch(
+		plan,
+		func(name string) error { return normalizeNativeUninstallError(UninstallTunnel(name)) },
+		s.WaitForStop,
+		func() error { return InstallTunnel(path) },
+	)
+	if switchErr != nil {
+		return switchErr
+	}
+	if err := clearSmartDesired(); err != nil {
+		rollbackErr := s.stopNativeTunnelsLocked([]string{tunnelName})
+		return errors.Join(fmt.Errorf("clear smart recovery state after native start: %w", err), rollbackErr)
+	}
+	return nil
 }
 
 func (s *ManagerService) Stop(tunnelName string) error {
+	desiredErr := clearSmartDesiredForTunnel(tunnelName)
 	var smartErr error
 	_, smartErr = smartStopTunnel(tunnelName)
-	nativeErr := UninstallTunnel(tunnelName)
-	if nativeErr == windows.ERROR_SERVICE_MARKED_FOR_DELETE {
-		nativeErr = nil
-	} else if nativeErr == windows.ERROR_SERVICE_DOES_NOT_EXIST {
-		_, notExistsError := conf.LoadFromName(tunnelName)
-		if notExistsError == nil {
-			nativeErr = nil
-		}
-	}
-	var waitErr error
-	if nativeErr == nil {
-		waitErr = s.WaitForStop(tunnelName)
-	}
-	return errors.Join(smartErr, nativeErr, waitErr)
+	nativeErr := s.stopNativeTunnel(tunnelName)
+	return errors.Join(desiredErr, smartErr, nativeErr)
 }
 
 func (s *ManagerService) WaitForStop(tunnelName string) error {

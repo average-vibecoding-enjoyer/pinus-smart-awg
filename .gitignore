@@ -16,6 +16,7 @@
 # Runtime state and secrets
 *.log
 *.conf
+*.dpapi
 *.json.tmp
 /runtime/
 /diagnostics/

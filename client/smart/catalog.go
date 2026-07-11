@@ -2,18 +2,25 @@
 
 package smart
 
+import (
+	"sync"
+	"time"
+)
+
 const AIServiceID = "ai"
 
+const builtinCatalogRevision uint64 = 1
+
 type Service struct {
-	ID             string
-	Name           string
-	Description    string
-	ProcessNames   []string
-	Domains        []string
-	DomainSuffixes []string
+	ID             string   `json:"id"`
+	Name           string   `json:"name"`
+	Description    string   `json:"description"`
+	ProcessNames   []string `json:"process_names,omitempty"`
+	Domains        []string `json:"domains,omitempty"`
+	DomainSuffixes []string `json:"domain_suffixes,omitempty"`
 }
 
-var serviceCatalog = []Service{
+var builtinServiceCatalog = []Service{
 	{
 		ID:          "discord",
 		Name:        "Discord",
@@ -105,13 +112,34 @@ var serviceCatalog = []Service{
 	},
 }
 
+type PresetStatus struct {
+	Revision    uint64
+	Source      string
+	Digest      string
+	PublishedAt time.Time
+	LastChecked time.Time
+	LastError   string
+}
+
+var serviceCatalogState = struct {
+	sync.RWMutex
+	services []Service
+	status   PresetStatus
+}{
+	services: cloneServices(builtinServiceCatalog),
+	status: PresetStatus{
+		Revision: builtinCatalogRevision,
+		Source:   "built-in",
+	},
+}
+
 func copyStrings(values []string) []string {
 	return append([]string(nil), values...)
 }
 
-func ServiceCatalog() []Service {
-	out := make([]Service, len(serviceCatalog))
-	for i, service := range serviceCatalog {
+func cloneServices(services []Service) []Service {
+	out := make([]Service, len(services))
+	for i, service := range services {
 		out[i] = service
 		out[i].ProcessNames = copyStrings(service.ProcessNames)
 		out[i].Domains = copyStrings(service.Domains)
@@ -120,9 +148,44 @@ func ServiceCatalog() []Service {
 	return out
 }
 
+func BuiltinServiceCatalog() []Service {
+	return cloneServices(builtinServiceCatalog)
+}
+
+func ServiceCatalog() []Service {
+	serviceCatalogState.RLock()
+	defer serviceCatalogState.RUnlock()
+	return cloneServices(serviceCatalogState.services)
+}
+
+func ServiceCatalogStatus() PresetStatus {
+	serviceCatalogState.RLock()
+	defer serviceCatalogState.RUnlock()
+	return serviceCatalogState.status
+}
+
+func applyServiceCatalog(services []Service, status PresetStatus) {
+	serviceCatalogState.Lock()
+	serviceCatalogState.services = cloneServices(services)
+	serviceCatalogState.status = status
+	serviceCatalogState.Unlock()
+}
+
+func recordServiceCatalogCheck(checked time.Time, err error) {
+	serviceCatalogState.Lock()
+	serviceCatalogState.status.LastChecked = checked
+	if err != nil {
+		serviceCatalogState.status.LastError = err.Error()
+	} else {
+		serviceCatalogState.status.LastError = ""
+	}
+	serviceCatalogState.Unlock()
+}
+
 func DefaultServiceIDs() []string {
-	ids := make([]string, 0, len(serviceCatalog))
-	for _, service := range serviceCatalog {
+	catalog := ServiceCatalog()
+	ids := make([]string, 0, len(catalog))
+	for _, service := range catalog {
 		ids = append(ids, service.ID)
 	}
 	return ids
@@ -134,7 +197,7 @@ func selectedServices(ids []string) []Service {
 		selected[id] = true
 	}
 	services := make([]Service, 0, len(ids))
-	for _, service := range serviceCatalog {
+	for _, service := range ServiceCatalog() {
 		if selected[service.ID] {
 			services = append(services, service)
 		}

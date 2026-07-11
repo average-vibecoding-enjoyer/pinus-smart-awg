@@ -1,4 +1,4 @@
-PINUS SMART AWG 3.2.1
+PINUS SMART AWG 3.2.2
 
 Получить VPN-профиль: https://t.me/pinusvpn_bot
 

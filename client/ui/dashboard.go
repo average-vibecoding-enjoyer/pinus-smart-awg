@@ -4,6 +4,7 @@ package ui
 
 import (
 	"archive/zip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -62,25 +63,30 @@ type Dashboard struct {
 	gdiCommands   []dashboardGDICommand
 	page          dashboardPage
 
-	profiles      []profileInfo
-	selected      int
-	activeName    string
-	settings      smart.RoutingSettings
-	globalState   manager.TunnelState
-	connectedAt   time.Time
-	lastError     string
-	operation     uint32
-	hoverID       string
-	pressedID     string
-	hits          []dashboardHit
-	profileScroll int
-	ruleScroll    int
-	animation     float64
+	profiles        []profileInfo
+	selected        int
+	activeName      string
+	settings        smart.RoutingSettings
+	globalState     manager.TunnelState
+	connectedAt     time.Time
+	lastError       string
+	operation       uint32
+	diagnosticsBusy uint32
+	diagnostics     diagnosticReport
+	hoverID         string
+	pressedID       string
+	hits            []dashboardHit
+	profileScroll   int
+	ruleScroll      int
+	animation       float64
 
 	tunnelChangedCB  *manager.TunnelChangeCallback
 	tunnelsChangedCB *manager.TunnelsChangeCallback
 	stopAnimation    chan struct{}
 	disposeOnce      sync.Once
+	presetContext    context.Context
+	presetCancel     context.CancelFunc
+	presetUpdate     chan struct{}
 }
 
 func NewDashboard(parent walk.Container, preview bool) (*Dashboard, error) {
@@ -89,6 +95,7 @@ func NewDashboard(parent walk.Container, preview bool) (*Dashboard, error) {
 		return nil, err
 	}
 
+	presetContext, presetCancel := context.WithCancel(context.Background())
 	dashboard := &Dashboard{
 		preview:       preview,
 		theme:         theme,
@@ -97,6 +104,9 @@ func NewDashboard(parent walk.Container, preview bool) (*Dashboard, error) {
 		settings:      smart.DefaultSettings(),
 		globalState:   manager.TunnelStopped,
 		stopAnimation: make(chan struct{}),
+		presetContext: presetContext,
+		presetCancel:  presetCancel,
+		presetUpdate:  make(chan struct{}, 1),
 	}
 	widget, err := walk.NewCustomWidgetPixels(parent, win.WS_TABSTOP, dashboard.paint)
 	if err != nil {
@@ -122,11 +132,15 @@ func NewDashboard(parent walk.Container, preview bool) (*Dashboard, error) {
 	if preview {
 		dashboard.loadPreviewProfiles()
 	} else {
+		_ = smart.LoadCachedServiceCatalog()
 		dashboard.loadProfiles()
 		dashboard.tunnelChangedCB = manager.IPCClientRegisterTunnelChange(dashboard.onTunnelChanged)
 		dashboard.tunnelsChangedCB = manager.IPCClientRegisterTunnelsChange(dashboard.onTunnelsChanged)
 	}
 	dashboard.startAnimationLoop()
+	if !preview {
+		dashboard.startPresetUpdateLoop()
+	}
 	return dashboard, nil
 }
 
@@ -146,6 +160,9 @@ func (dashboard *Dashboard) Invalidate() error {
 func (dashboard *Dashboard) stop() {
 	dashboard.disposeOnce.Do(func() {
 		close(dashboard.stopAnimation)
+		if dashboard.presetCancel != nil {
+			dashboard.presetCancel()
+		}
 		if dashboard.tunnelChangedCB != nil {
 			dashboard.tunnelChangedCB.Unregister()
 			dashboard.tunnelChangedCB = nil
@@ -167,6 +184,54 @@ func (dashboard *Dashboard) stop() {
 			dashboard.backing = nil
 		}
 	})
+}
+
+func (dashboard *Dashboard) requestPresetUpdate() {
+	select {
+	case dashboard.presetUpdate <- struct{}{}:
+	default:
+	}
+}
+
+func (dashboard *Dashboard) startPresetUpdateLoop() {
+	go func() {
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-dashboard.presetContext.Done():
+				return
+			case <-dashboard.presetUpdate:
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+			case <-timer.C:
+			}
+
+			changed, err := smart.UpdateServiceCatalog(dashboard.presetContext)
+			nextCheck := 12 * time.Hour
+			if err != nil {
+				nextCheck = 15 * time.Minute
+			}
+			if changed {
+				if dashboard.presetContext.Err() != nil {
+					return
+				}
+				dashboard.Synchronize(func() {
+					if profile := dashboard.selectedProfile(); profile != nil {
+						if settings, loadErr := smart.LoadSettings(profile.Tunnel.Name); loadErr == nil {
+							dashboard.settings = settings
+						}
+					}
+					_ = dashboard.Invalidate()
+				})
+			}
+			timer.Reset(nextCheck)
+		}
+	}()
 }
 
 func (dashboard *Dashboard) startAnimationLoop() {
@@ -228,20 +293,20 @@ func (dashboard *Dashboard) loadProfiles() {
 		return conf.TunnelNameIsLess(tunnels[i].Name, tunnels[j].Name)
 	})
 	profiles := make([]profileInfo, 0, len(tunnels))
-	activeName := ""
 	for _, tunnel := range tunnels {
 		state, stateErr := tunnel.State()
 		if stateErr != nil {
 			state = manager.TunnelUnknown
-		}
-		if state == manager.TunnelStarted || state == manager.TunnelStarting {
-			activeName = tunnel.Name
 		}
 		profiles = append(profiles, profileInfo{
 			Tunnel:   tunnel,
 			Endpoint: endpointForTunnel(tunnel),
 			State:    state,
 		})
+	}
+	activeName, activeCount := chooseActiveProfile(profiles, selectedName)
+	if activeCount > 1 {
+		dashboard.lastError = fmt.Sprintf("Обнаружено одновременно активных VPN-профилей: %d. При следующем переключении останется только выбранный.", activeCount)
 	}
 	dashboard.profiles = profiles
 	dashboard.activeName = activeName
@@ -275,6 +340,21 @@ func (dashboard *Dashboard) loadProfiles() {
 	if dashboard.globalState == manager.TunnelStarted && dashboard.connectedAt.IsZero() {
 		dashboard.connectedAt = time.Now()
 	}
+}
+
+func chooseActiveProfile(profiles []profileInfo, preferred string) (string, int) {
+	activeName := ""
+	activeCount := 0
+	for _, profile := range profiles {
+		if profile.State != manager.TunnelStarted && profile.State != manager.TunnelStarting {
+			continue
+		}
+		activeCount++
+		if activeName == "" || strings.EqualFold(profile.Tunnel.Name, preferred) {
+			activeName = profile.Tunnel.Name
+		}
+	}
+	return activeName, activeCount
 }
 
 func (dashboard *Dashboard) selectedProfile() *profileInfo {
@@ -312,6 +392,7 @@ func (dashboard *Dashboard) ShowPage(page dashboardPage) {
 
 func (dashboard *Dashboard) onTunnelChanged(tunnel *manager.Tunnel, state, globalState manager.TunnelState, changeErr error) {
 	dashboard.Synchronize(func() {
+		becameConnected := globalState == manager.TunnelStarted && dashboard.globalState != manager.TunnelStarted
 		dashboard.globalState = globalState
 		if tunnel != nil {
 			for i := range dashboard.profiles {
@@ -335,6 +416,9 @@ func (dashboard *Dashboard) onTunnelChanged(tunnel *manager.Tunnel, state, globa
 		}
 		if changeErr != nil {
 			dashboard.lastError = changeErr.Error()
+		}
+		if becameConnected {
+			dashboard.requestPresetUpdate()
 		}
 		_ = dashboard.Invalidate()
 	})
@@ -478,6 +562,8 @@ func (dashboard *Dashboard) activate(id string) {
 		openPinusVPNBot(dashboard.Form())
 	case "diagnostics:folder":
 		dashboard.openRuntimeFolder()
+	case "diagnostics:run":
+		dashboard.runDiagnostics()
 	case "diagnostics:copy":
 		dashboard.copyDiagnostics()
 	case "diagnostics:about":
@@ -1126,7 +1212,7 @@ func (dashboard *Dashboard) ImportProfiles() {
 }
 
 func (dashboard *Dashboard) openRuntimeFolder() {
-	path := smart.WorkDir()
+	path := filepath.Join(smart.WorkDir(), "logs")
 	_ = os.MkdirAll(path, 0700)
 	_ = exec.Command("explorer.exe", path).Start()
 }
@@ -1142,7 +1228,15 @@ func (dashboard *Dashboard) copyDiagnostics() {
 	if engineErr != nil {
 		engine = engineErr.Error()
 	}
-	text := fmt.Sprintf("Pinus Smart AWG\r\nProfile: %s\r\nEndpoint: %s\r\nRouting mode: %s\r\nEngine: %s\r\nState: %d\r\nLast error: %s", profileName, endpoint, dashboard.settings.Mode, engine, dashboard.globalState, dashboard.lastError)
+	presets := smart.ServiceCatalogStatus()
+	lastPresetCheck := "never"
+	if !presets.LastChecked.IsZero() {
+		lastPresetCheck = presets.LastChecked.UTC().Format(time.RFC3339)
+	}
+	text := fmt.Sprintf("Pinus Smart AWG\r\nProfile: %s\r\nEndpoint: %s\r\nRouting mode: %s\r\nEngine: %s\r\nState: %d\r\nPreset revision: %d\r\nPreset source: %s\r\nPreset last check: %s\r\nPreset error: %s\r\nLast error: %s", profileName, endpoint, dashboard.settings.Mode, engine, dashboard.globalState, presets.Revision, presets.Source, lastPresetCheck, presets.LastError, dashboard.lastError)
+	if len(dashboard.diagnostics.Checks) > 0 {
+		text += "\r\n\r\n" + dashboard.diagnostics.String()
+	}
 	if err := walk.Clipboard().SetText(text); err != nil {
 		dashboard.lastError = err.Error()
 	} else {

@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -26,6 +27,12 @@ import (
 )
 
 type managerService struct{}
+
+const (
+	pbtAPMSuspend       = 0x0004
+	pbtAPMResumeSuspend = 0x0007
+	pbtAPMResumeAuto    = 0x0012
+)
 
 func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest, changes chan<- svc.Status) (svcSpecificEC bool, exitCode uint32) {
 	changes <- svc.Status{State: svc.StartPending}
@@ -70,6 +77,8 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		serviceError = services.ErrorTrackTunnels
 		return
 	}
+	startSmartRecoverySupervisor()
+	defer stopSmartRecoverySupervisor()
 
 	conf.RegisterStoreChangeCallback(func() { conf.MigrateUnencryptedConfigs(changeTunnelServiceConfigFilePath) })
 	conf.RegisterStoreChangeCallback(IPCServerNotifyTunnelsChange)
@@ -77,10 +86,11 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	procs := make(map[uint32]*uiProcess)
 	aliveSessions := make(map[uint32]bool)
 	procsLock := sync.Mutex{}
-	stoppingManager := false
+	stoppingManager := atomic.Bool{}
 	operatorGroupSid, _ := windows.CreateWellKnownSid(windows.WinBuiltinNetworkConfigurationOperatorsSid)
 
 	startProcess := func(session uint32) {
+		runtime.LockOSThread()
 		defer func() {
 			runtime.UnlockOSThread()
 			procsLock.Lock()
@@ -156,7 +166,7 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 		userToken = 0
 		first := true
 		for {
-			if stoppingManager {
+			if stoppingManager.Load() {
 				return
 			}
 
@@ -286,7 +296,8 @@ func (service *managerService) Execute(args []string, r <-chan svc.ChangeRequest
 	}
 	windows.WTSFreeMemory(uintptr(unsafe.Pointer(sessionsPointer)))
 
-	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptSessionChange}
+	changes <- svc.Status{State: svc.Running, Accepts: svc.AcceptStop | svc.AcceptSessionChange | svc.AcceptPowerEvent}
+	requestSmartRecovery("manager started", false, time.Second)
 
 	uninstall := false
 loop:
@@ -327,6 +338,8 @@ loop:
 					}
 					procsLock.Unlock()
 				}
+			case svc.PowerEvent:
+				handleSmartPowerEvent(c.EventType, func(operation func()) { go operation() }, pauseSmartForSuspend, resumeSmartAfterSuspend)
 
 			default:
 				log.Printf("Unexpected service control request #%d", c)
@@ -335,8 +348,9 @@ loop:
 	}
 
 	changes <- svc.Status{State: svc.StopPending}
+	stopSmartRecoverySupervisor()
 	procsLock.Lock()
-	stoppingManager = true
+	stoppingManager.Store(true)
 	IPCServerNotifyManagerStopping()
 	_ = smartStop()
 	for _, proc := range procs {
