@@ -1,0 +1,28 @@
+# Build output
+/dist/
+/release/
+/.build/
+/.cache/
+/.verify/
+/client/amd64/
+/client/x86/
+/client/arm64/
+/client/*.syso
+/client/resource_windows_*.syso
+
+# Bundled runtime binaries are copied into release packages by the build script.
+/engine/*.exe
+
+# Runtime state and secrets
+*.log
+*.conf
+*.json.tmp
+/runtime/
+/diagnostics/
+/design/runtime-*.png
+/design/preview-*.png
+
+# Local tooling
+/.codex-front/
+/.vscode/
+/.idea/

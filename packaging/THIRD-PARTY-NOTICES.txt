@@ -1,0 +1,21 @@
+THIRD-PARTY NOTICES
+
+Pinus Smart AWG includes amnezia-box.exe, a modified sing-box networking
+engine distributed under the GNU General Public License, version 3 or later.
+
+Engine source:
+https://github.com/hoaxisr/amnezia-box
+
+Exact engine revision:
+f40548f91a14582975096d0310e3c6afd44656f8
+
+The engine license notice is included as ENGINE-LICENSE.txt. The Pinus Smart
+AWG client license is included separately as LICENSE.txt.
+
+Pinus Smart AWG also includes wintun.dll version 0.14.1 from WireGuard LLC.
+The official prebuilt Wintun DLL is distributed under the separate license
+included as WINTUN-LICENSE.txt. The DLL is copied unmodified from the archive
+published by WireGuard LLC.
+
+Wintun source and releases:
+https://www.wintun.net/

@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <?if $(var.Platform) = "x86" ?>
+    <?define ProgramFilesFolderId = "ProgramFilesFolder" ?>
+    <?define ComponentWin64 = "no" ?>
+    <?define ClientComponentGuid = "{C18F88C1-42C5-4C96-989E-192B75AD0DAB}" ?>
+    <?define EngineComponentGuid = "{186EB14F-9BC2-4E73-A018-784D54EE7F68}" ?>
+    <?define WintunComponentGuid = "{EE8AF1D2-2AC7-4DD0-8C92-44AB30E6967F}" ?>
+    <?define DocsComponentGuid = "{542AD8C8-CFE5-452B-AC62-4A9385F8D7CE}" ?>
+    <?define StartMenuComponentGuid = "{B4581613-B4D3-443C-95BB-BEA8902DB12E}" ?>
+    <?define DesktopComponentGuid = "{515C49EF-C827-497E-B8C9-E9593C0C1C97}" ?>
+  <?elseif $(var.Platform) = "arm64" ?>
+    <?define ProgramFilesFolderId = "ProgramFiles64Folder" ?>
+    <?define ComponentWin64 = "yes" ?>
+    <?define ClientComponentGuid = "{F8009674-4F31-480A-849F-B023C6B7DE17}" ?>
+    <?define EngineComponentGuid = "{EB481BB0-435B-4D88-A1FA-58B5D166386B}" ?>
+    <?define WintunComponentGuid = "{E26F2324-FB44-4605-9A10-0388EACD8575}" ?>
+    <?define DocsComponentGuid = "{772D3625-0911-4146-89F3-CBB536AE713C}" ?>
+    <?define StartMenuComponentGuid = "{87275C9D-5244-40C7-B141-840204257989}" ?>
+    <?define DesktopComponentGuid = "{42832971-72D2-470B-9F08-5FB769EEF84B}" ?>
+  <?else ?>
+    <?define ProgramFilesFolderId = "ProgramFiles64Folder" ?>
+    <?define ComponentWin64 = "yes" ?>
+    <?define ClientComponentGuid = "{B7BC49B1-337B-4362-9525-7E1F4546326B}" ?>
+    <?define EngineComponentGuid = "{57B82F94-B93B-4821-8DAD-9C17A31AD3CB}" ?>
+    <?define WintunComponentGuid = "{C1642E41-909A-4751-978E-15CC70AA2260}" ?>
+    <?define DocsComponentGuid = "{325C69ED-2D07-43CC-A276-6F0E3AE0E996}" ?>
+    <?define StartMenuComponentGuid = "{56E7D745-2F16-49CF-80C4-E066A6B67A58}" ?>
+    <?define DesktopComponentGuid = "{52CEFB3F-AAA7-4209-80AC-32A909F738E8}" ?>
+  <?endif ?>
+
+  <Product
+    Id="*"
+    Name="Pinus Smart AWG"
+    Language="1049"
+    Version="$(var.AppVersion)"
+    Manufacturer="Pinus VPN"
+    UpgradeCode="{60FDF023-80B1-49D5-B026-2CFD841FB5A3}">
+
+    <Package
+      InstallerVersion="500"
+      Compressed="yes"
+      InstallScope="perMachine"
+      Platform="$(var.Platform)"
+      Description="Pinus Smart AWG $(var.ArchLabel)" />
+
+    <MajorUpgrade
+      AllowDowngrades="no"
+      DowngradeErrorMessage="A newer version of Pinus Smart AWG is already installed."
+      Schedule="afterInstallExecute" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Property Id="ARPPRODUCTICON" Value="PinusIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://t.me/MEN9_HET" />
+    <Property Id="ARPCONTACT" Value="https://t.me/MEN9_HET" />
+    <Property Id="MSIFASTINSTALL" Value="1" />
+    <Icon Id="PinusIcon" SourceFile="$(var.IconPath)" />
+
+    <Condition Message="Windows 10 or later is required.">Installed OR VersionNT &gt;= 1000</Condition>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="$(var.ProgramFilesFolderId)">
+        <Directory Id="PinusRootFolder" Name="Pinus Smart AWG Next">
+          <Directory Id="VersionsFolder" Name="Versions">
+            <Directory Id="INSTALLFOLDER" Name="$(var.AppVersion)" />
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="CommonProgramsFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Pinus Smart AWG" />
+      </Directory>
+      <Directory Id="CommonDesktopFolder" />
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ClientFile" Guid="$(var.ClientComponentGuid)" Win64="$(var.ComponentWin64)">
+        <File Id="PinusSmartAWGExe" Source="$(var.BundleDir)\PinusSmartAWG.exe" KeyPath="yes" Checksum="yes" />
+      </Component>
+      <Component Id="EngineFile" Guid="$(var.EngineComponentGuid)" Win64="$(var.ComponentWin64)">
+        <File Id="AmneziaBoxExe" Source="$(var.BundleDir)\amnezia-box.exe" Checksum="yes" />
+      </Component>
+      <Component Id="WintunFile" Guid="$(var.WintunComponentGuid)" Win64="$(var.ComponentWin64)">
+        <File Id="WintunDll" Source="$(var.BundleDir)\wintun.dll" Checksum="yes" />
+      </Component>
+      <Component Id="DocumentationFiles" Guid="$(var.DocsComponentGuid)" Win64="$(var.ComponentWin64)">
+        <File Id="PackageReadme" Source="$(var.BundleDir)\README.txt" />
+        <File Id="ClientLicense" Source="$(var.BundleDir)\LICENSE.txt" />
+        <File Id="EngineLicense" Source="$(var.BundleDir)\ENGINE-LICENSE.txt" />
+        <File Id="WintunLicense" Source="$(var.BundleDir)\WINTUN-LICENSE.txt" />
+        <File Id="ThirdPartyNotices" Source="$(var.BundleDir)\THIRD-PARTY-NOTICES.txt" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="StartMenuShortcut" Guid="$(var.StartMenuComponentGuid)" Win64="$(var.ComponentWin64)">
+        <Shortcut
+          Id="StartMenuPinusShortcut"
+          Name="Pinus Smart AWG"
+          Description="Pinus Smart AWG VPN client"
+          Target="[INSTALLFOLDER]PinusSmartAWG.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Pinus VPN\Pinus Smart AWG"
+          Name="StartMenuShortcut"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="CommonDesktopFolder">
+      <Component Id="DesktopShortcut" Guid="$(var.DesktopComponentGuid)" Win64="$(var.ComponentWin64)">
+        <Shortcut
+          Id="DesktopPinusShortcut"
+          Name="Pinus Smart AWG"
+          Description="Pinus Smart AWG VPN client"
+          Target="[INSTALLFOLDER]PinusSmartAWG.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Pinus VPN\Pinus Smart AWG"
+          Name="DesktopShortcut"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Complete" Title="Pinus Smart AWG" Level="1" Absent="disallow">
+      <ComponentRef Id="ClientFile" />
+      <ComponentRef Id="EngineFile" />
+      <ComponentRef Id="WintunFile" />
+      <ComponentRef Id="DocumentationFiles" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="DesktopShortcut" />
+    </Feature>
+
+    <CustomAction
+      Id="InstallManagerService"
+      FileKey="PinusSmartAWGExe"
+      ExeCommand="/installmanagerservicequiet"
+      Execute="deferred"
+      Impersonate="no"
+      Return="check" />
+    <CustomAction
+      Id="UninstallPinusServices"
+      FileKey="PinusSmartAWGExe"
+      ExeCommand="/uninstallallservices"
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="InstallManagerService" After="InstallFiles">NOT Installed OR REINSTALL</Custom>
+      <Custom Action="UninstallPinusServices" Before="RemoveFiles">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom>
+    </InstallExecuteSequence>
+
+    <UIRef Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+  </Product>
+</Wix>

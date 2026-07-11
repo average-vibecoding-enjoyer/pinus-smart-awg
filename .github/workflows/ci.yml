@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: .go-version
+          cache-dependency-path: |
+            client/go.sum
+            core/go.sum
+
+      - name: Test client
+        working-directory: client
+        run: go test -count=1 ./...
+
+      - name: Test core
+        working-directory: core
+        run: go test -count=1 ./...
+
+      - name: Build x64 release smoke test
+        shell: pwsh
+        run: ./build-public-release.ps1 -Architectures amd64 -SkipInstallers
+
+      - name: Upload smoke-test package
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinus-smart-awg-x64-smoke
+          path: release/
+          if-no-files-found: error
+          retention-days: 7

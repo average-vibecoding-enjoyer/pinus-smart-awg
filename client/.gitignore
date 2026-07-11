@@ -1,0 +1,19 @@
+# Dependencies
+/.deps
+/.distfiles
+
+# Build Output
+/x86
+/amd64
+/arm
+/arm64
+
+# Misc
+/locales/*/out.gotext.json
+/sign.bat
+*.swp
+*.bak
+*.syso
+.idea
+*.ico
+!ui/icon/pinus-smart-awg.ico

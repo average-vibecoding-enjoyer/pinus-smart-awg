@@ -1,0 +1,27 @@
+name: Bug report
+description: Сообщить о воспроизводимой ошибке без приватных данных
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Не прикладывайте PrivateKey, PresharedKey, пароли, токены или полный VPN-профиль.
+  - type: input
+    id: version
+    attributes:
+      label: Версия и архитектура
+      placeholder: 3.2.0, Windows 11 x64
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: Фактическое и ожидаемое поведение
+    validations:
+      required: true

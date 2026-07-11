@@ -1,0 +1,87 @@
+/* SPDX-License-Identifier: MIT
+ *
+ * Copyright (C) 2019-2022 WireGuard LLC. All Rights Reserved.
+ */
+
+#include <windows.h>
+
+#pragma code_page(65001) // UTF-8
+
+#define STRINGIZE(x) #x
+#define EXPAND(x) STRINGIZE(x)
+
+LANGUAGE LANG_NEUTRAL, SUBLANG_NEUTRAL
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST manifest.xml
+7 ICON ui/icon/pinus-smart-awg.ico
+8 ICON ui/icon/dot.ico
+
+#define VERSIONINFO_TEMPLATE(block_id, lang_id, codepage_id, file_desc, comments) \
+VS_VERSION_INFO VERSIONINFO \
+FILEVERSION    WIREGUARD_VERSION_ARRAY \
+PRODUCTVERSION WIREGUARD_VERSION_ARRAY \
+FILEOS         VOS_NT_WINDOWS32 \
+FILETYPE       VFT_APP \
+FILESUBTYPE    VFT2_UNKNOWN \
+BEGIN \
+  BLOCK "StringFileInfo" \
+  BEGIN \
+    BLOCK block_id \
+    BEGIN \
+      VALUE "CompanyName", "Pinus VPN" \
+      VALUE "FileDescription", file_desc \
+      VALUE "FileVersion", EXPAND(WIREGUARD_VERSION_STR) \
+      VALUE "InternalName", "pinus-smart-awg" \
+      VALUE "LegalCopyright", "Pinus Smart AWG MVP. Based on AmneziaWG, WireGuard, and amnezia-box." \
+      VALUE "OriginalFilename", "pinus-amneziawg-mvp.exe" \
+      VALUE "ProductName", "Pinus Smart AWG" \
+      VALUE "ProductVersion", EXPAND(WIREGUARD_VERSION_STR) \
+      VALUE "Comments", comments \
+    END \
+  END \
+  BLOCK "VarFileInfo" \
+  BEGIN \
+    VALUE "Translation", lang_id, codepage_id \
+  END \
+END
+
+LANGUAGE LANG_ENGLISH, SUBLANG_DEFAULT
+VERSIONINFO_TEMPLATE(
+  "040904b0", 0x409, 0x4b0,
+  "Pinus Smart AWG",
+  "https://t.me/MEN9_HET"
+)
+
+LANGUAGE LANG_FRENCH, SUBLANG_DEFAULT
+VERSIONINFO_TEMPLATE(
+  "040c04b0", 0x40c, 0x4b0,
+  "Pinus Smart AWG",
+  "https://t.me/MEN9_HET"
+)
+
+LANGUAGE LANG_ITALIAN, SUBLANG_DEFAULT
+VERSIONINFO_TEMPLATE(
+  "041004b0", 0x410, 0x4b0,
+  "Pinus Smart AWG",
+  "https://t.me/MEN9_HET"
+)
+
+LANGUAGE LANG_JAPANESE, SUBLANG_DEFAULT
+VERSIONINFO_TEMPLATE(
+  "041104b0", 0x411, 0x4b0,
+  "Pinus Smart AWG",
+  "https://t.me/MEN9_HET"
+)
+
+LANGUAGE LANG_SLOVENIAN, SUBLANG_DEFAULT
+VERSIONINFO_TEMPLATE(
+  "042404b0", 0x424, 0x4b0,
+  "Pinus Smart AWG",
+  "https://t.me/MEN9_HET"
+)
+
+LANGUAGE LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL
+VERSIONINFO_TEMPLATE(
+  "040404b0", 0x404, 0x4b0,
+  "Pinus Smart AWG",
+  "https://t.me/MEN9_HET"
+)
