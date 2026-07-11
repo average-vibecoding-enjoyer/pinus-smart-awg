@@ -300,6 +300,29 @@ func TestServiceRuleIncludesExactSuffixRoots(t *testing.T) {
 	}
 }
 
+func TestSelectedModeRoutesSignedPresetUpdatesThroughVPN(t *testing.T) {
+	settings := DefaultSettings()
+	settings.Mode = ModeSelected
+	settings.SelectedApps = []string{"discord"}
+	data, err := BuildConfig(parseTestProfile(t), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, value := range routeRules(t, decodeRoute(t, data)) {
+		rule := value.(map[string]any)
+		domains, _ := rule["domain"].([]any)
+		for _, domain := range domains {
+			if domain == "raw.githubusercontent.com" && rule["outbound"] == "awg-out" {
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatal("signed preset update host is not routed through VPN")
+	}
+}
+
 func TestBuildConfigAllModeAndTunCompatibility(t *testing.T) {
 	settings := DefaultSettings()
 	settings.CustomRules = []CustomRule{

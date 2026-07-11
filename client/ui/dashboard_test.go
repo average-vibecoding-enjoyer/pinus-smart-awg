@@ -11,6 +11,7 @@ import (
 
 	"github.com/lxn/walk"
 
+	"github.com/amnezia-vpn/amneziawg-windows-client/manager"
 	"github.com/amnezia-vpn/amneziawg-windows-client/smart"
 )
 
@@ -27,6 +28,18 @@ func TestHasSelectedVPNRoute(t *testing.T) {
 	settings.CustomRules = append(settings.CustomRules, smart.CustomRule{Enabled: true, Target: smart.TargetVPN})
 	if !hasSelectedVPNRoute(settings) {
 		t.Fatal("enabled VPN rule was not detected")
+	}
+}
+
+func TestChooseActiveProfilePrefersSavedSelection(t *testing.T) {
+	profiles := []profileInfo{
+		{Tunnel: manager.Tunnel{Name: "Alpha"}, State: manager.TunnelStarted},
+		{Tunnel: manager.Tunnel{Name: "Beta"}, State: manager.TunnelStarting},
+		{Tunnel: manager.Tunnel{Name: "Stopped"}, State: manager.TunnelStopped},
+	}
+	name, count := chooseActiveProfile(profiles, "Beta")
+	if name != "Beta" || count != 2 {
+		t.Fatalf("active selection = %q/%d, want Beta/2", name, count)
 	}
 }
 

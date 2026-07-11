@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/lxn/walk"
@@ -1127,6 +1128,17 @@ func (dashboard *Dashboard) drawDiagnosticsPage(canvas *walk.Canvas, content wal
 	}
 	modeTitle, _ := modeCopy(dashboard.settings.Mode)
 	status, _, statusColor := stateCopy(dashboard.globalState, dashboard.operationBusy())
+	presets := smart.ServiceCatalogStatus()
+	presetSource := "встроенные"
+	if presets.Source == "verified cache" {
+		presetSource = "проверенный кеш"
+	} else if presets.Source == "signed update" {
+		presetSource = "подписанное обновление"
+	}
+	presetColor := dashboard.theme.successColor
+	if presets.LastError != "" {
+		presetColor = dashboard.theme.warningColor
+	}
 	rows := []struct {
 		label string
 		value string
@@ -1137,22 +1149,53 @@ func (dashboard *Dashboard) drawDiagnosticsPage(canvas *walk.Canvas, content wal
 		{"Сервер", endpoint, dashboard.theme.textColor},
 		{"Маршрутизация", modeTitle, dashboard.theme.textColor},
 		{"Пользовательских правил", fmt.Sprintf("%d", len(dashboard.settings.CustomRules)), dashboard.theme.textColor},
+		{"Пресеты", fmt.Sprintf("rev. %d · %s", presets.Revision, presetSource), presetColor},
 	}
-	card := walk.Rectangle{X: content.X, Y: startY, Width: content.Width, Height: dashboard.px(250)}
+	if len(dashboard.diagnostics.Checks) > 0 {
+		rows = rows[:0]
+		for _, check := range dashboard.diagnostics.Checks {
+			color := dashboard.theme.mutedColor
+			switch check.Level {
+			case diagnosticGood:
+				color = dashboard.theme.successColor
+			case diagnosticWarning:
+				color = dashboard.theme.warningColor
+			case diagnosticFailure:
+				color = dashboard.theme.dangerColor
+			}
+			rows = append(rows, struct {
+				label string
+				value string
+				color walk.Color
+			}{check.Name, check.Detail, color})
+		}
+	}
+	rowStep := dashboard.px(34)
+	cardHeight := dashboard.px(250)
+	if required := dashboard.px(28) + rowStep*len(rows); required > cardHeight {
+		cardHeight = required
+	}
+	card := walk.Rectangle{X: content.X, Y: startY, Width: content.Width, Height: cardHeight}
 	dashboard.drawCard(canvas, "", card, false, false)
 	rowY := card.Y + dashboard.px(18)
 	for _, row := range rows {
 		dashboard.drawText(canvas, row.label, dashboard.theme.smallFont, dashboard.theme.mutedColor, walk.Rectangle{X: card.X + dashboard.px(20), Y: rowY, Width: card.Width/2 - dashboard.px(30), Height: dashboard.px(28)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine)
 		dashboard.drawText(canvas, row.value, dashboard.theme.bodyFont, row.color, walk.Rectangle{X: card.X + card.Width/2, Y: rowY, Width: card.Width/2 - dashboard.px(20), Height: dashboard.px(28)}, walk.TextRight|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
-		rowY += dashboard.px(42)
+		rowY += rowStep
 	}
 
 	buttonY := card.Y + card.Height + dashboard.px(18)
 	gap := dashboard.px(12)
-	buttonWidth := (content.Width - gap*2) / 3
-	dashboard.drawButton(canvas, "diagnostics:folder", "Папка логов", "\ue8b7", walk.Rectangle{X: content.X, Y: buttonY, Width: buttonWidth, Height: dashboard.px(42)}, false, false)
+	buttonWidth := (content.Width - gap*3) / 4
+	busy := atomic.LoadUint32(&dashboard.diagnosticsBusy) != 0
+	runLabel := "Проверить"
+	if busy {
+		runLabel = "Проверка..."
+	}
+	dashboard.drawButton(canvas, "diagnostics:run", runLabel, "\ue9d9", walk.Rectangle{X: content.X, Y: buttonY, Width: buttonWidth, Height: dashboard.px(42)}, false, busy)
 	dashboard.drawButton(canvas, "diagnostics:copy", "Копировать", "\ue8c8", walk.Rectangle{X: content.X + buttonWidth + gap, Y: buttonY, Width: buttonWidth, Height: dashboard.px(42)}, false, false)
-	dashboard.drawButton(canvas, "diagnostics:about", "О приложении", "\ue946", walk.Rectangle{X: content.X + (buttonWidth+gap)*2, Y: buttonY, Width: buttonWidth, Height: dashboard.px(42)}, false, false)
+	dashboard.drawButton(canvas, "diagnostics:folder", "Логи", "\ue8b7", walk.Rectangle{X: content.X + (buttonWidth+gap)*2, Y: buttonY, Width: buttonWidth, Height: dashboard.px(42)}, false, false)
+	dashboard.drawButton(canvas, "diagnostics:about", "О приложении", "\ue946", walk.Rectangle{X: content.X + (buttonWidth+gap)*3, Y: buttonY, Width: buttonWidth, Height: dashboard.px(42)}, false, false)
 
 	privacy := walk.Rectangle{X: content.X, Y: buttonY + dashboard.px(66), Width: content.Width, Height: dashboard.px(74)}
 	dashboard.drawCard(canvas, "", privacy, false, false)

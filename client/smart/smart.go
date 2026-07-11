@@ -217,6 +217,16 @@ type profileFamilies struct {
 	ipv6 bool
 }
 
+type ProfileNetworkSupport struct {
+	IPv4 bool
+	IPv6 bool
+}
+
+func DetectProfileNetworkSupport(config *conf.Config) ProfileNetworkSupport {
+	families := detectProfileFamilies(config)
+	return ProfileNetworkSupport{IPv4: families.ipv4, IPv6: families.ipv6}
+}
+
 func detectProfileFamilies(config *conf.Config) profileFamilies {
 	var interfaceIPv4, interfaceIPv6 bool
 	for _, address := range config.Interface.Addresses {
@@ -419,6 +429,11 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 	finalOutbound := "awg-out"
 	if settings.Mode == ModeSelected {
 		rules = append(rules, serviceRuleObjects(settings, "awg-out")...)
+		rules = append(rules, map[string]any{
+			"domain":   []string{"raw.githubusercontent.com", "github.com"},
+			"action":   "route",
+			"outbound": "awg-out",
+		})
 		finalOutbound = "direct"
 	} else {
 		// A full-tunnel policy must never silently fall back to the physical
