@@ -36,6 +36,18 @@ AllowedIPs = 0.0.0.0/0, ::/0
 PersistentKeepalive = 25
 `
 
+const dualStackTestProfile = `[Interface]
+PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk=
+Address = 10.77.77.2/32, fd42:42:42::2/128
+DNS = 1.1.1.1, 2606:4700:4700::1111
+
+[Peer]
+PublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=
+Endpoint = 198.51.100.10:443
+AllowedIPs = 0.0.0.0/0, ::/0
+PersistentKeepalive = 25
+`
+
 func parseTestProfile(t *testing.T) *conf.Config {
 	t.Helper()
 	config, err := conf.FromWgQuick(testProfile, "test")
@@ -43,6 +55,28 @@ func parseTestProfile(t *testing.T) *conf.Config {
 		t.Fatalf("parse profile: %v", err)
 	}
 	return config
+}
+
+func parseProfile(t *testing.T, source string) *conf.Config {
+	t.Helper()
+	config, err := conf.FromWgQuick(source, "test")
+	if err != nil {
+		t.Fatalf("parse profile: %v", err)
+	}
+	return config
+}
+
+func testEnginePath() string {
+	candidates := []string{
+		filepath.Clean(filepath.Join("..", "..", "engine", "amnezia-box.exe")),
+		filepath.Clean(filepath.Join("..", "..", ".build", "dependencies", "amd64", "amnezia-box.exe")),
+	}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return ""
 }
 
 func decodeRoute(t *testing.T, data []byte) map[string]any {
@@ -302,14 +336,99 @@ func TestBuildConfigAllModeAndTunCompatibility(t *testing.T) {
 		t.Fatalf("TUN interface = %v, want %s", inbound["interface_name"], TunInterfaceName)
 	}
 	addresses := inbound["address"].([]any)
-	if len(addresses) != 1 || addresses[0] != "172.19.77.1/30" {
-		t.Fatalf("TUN addresses = %#v, want IPv4-only routing", addresses)
+	if len(addresses) != 2 || addresses[0] != "172.19.77.1/30" || addresses[1] != "fdfe:dcba:9876::1/126" {
+		t.Fatalf("TUN addresses = %#v, want dual-stack capture", addresses)
 	}
 	if inbound["stack"] != "mixed" {
 		t.Fatalf("TUN stack = %v, want mixed", inbound["stack"])
 	}
 	if inbound["endpoint_independent_nat"] != true {
 		t.Fatalf("endpoint-independent NAT = %v, want true", inbound["endpoint_independent_nat"])
+	}
+}
+
+func TestBuildConfigIPv4ProfileRejectsUnprotectedIPv6InAllMode(t *testing.T) {
+	settings := DefaultSettings()
+	settings.CustomRules = []CustomRule{
+		{ID: "direct", Name: "Direct", Kind: RuleDomain, Value: "example.com", Target: TargetDirect, Enabled: true},
+	}
+	data, err := BuildConfig(parseTestProfile(t), settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := decodeRoot(t, data)
+	dns := root["dns"].(map[string]any)
+	if dns["strategy"] != "ipv4_only" {
+		t.Fatalf("DNS strategy = %v, want ipv4_only", dns["strategy"])
+	}
+	rules := routeRules(t, decodeRoute(t, data))
+	directIndex, rejectIndex := -1, -1
+	for index, value := range rules {
+		rule := value.(map[string]any)
+		if _, ok := rule["domain"]; ok && rule["outbound"] == "direct" {
+			directIndex = index
+		}
+		if rule["ip_version"] == float64(6) && rule["action"] == "reject" {
+			rejectIndex = index
+		}
+	}
+	if directIndex < 0 || rejectIndex < 0 || directIndex >= rejectIndex {
+		t.Fatalf("direct exception must precede IPv6 guard: direct=%d reject=%d", directIndex, rejectIndex)
+	}
+}
+
+func TestBuildConfigDualStackProfileUsesBothDNSFamilies(t *testing.T) {
+	data, err := BuildConfig(parseProfile(t, dualStackTestProfile), DefaultSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := decodeRoot(t, data)
+	dns := root["dns"].(map[string]any)
+	if dns["strategy"] != "prefer_ipv4" {
+		t.Fatalf("DNS strategy = %v, want prefer_ipv4", dns["strategy"])
+	}
+	servers := dns["servers"].([]any)
+	if len(servers) != 2 {
+		t.Fatalf("DNS servers = %#v, want both profile families", servers)
+	}
+	if servers[0].(map[string]any)["server"] != "1.1.1.1" || servers[1].(map[string]any)["server"] != "2606:4700:4700::1111" {
+		t.Fatalf("unexpected DNS servers: %#v", servers)
+	}
+	for _, value := range routeRules(t, decodeRoute(t, data)) {
+		rule := value.(map[string]any)
+		if rule["action"] == "reject" && (rule["ip_version"] == float64(4) || rule["ip_version"] == float64(6)) {
+			t.Fatalf("dual-stack profile received a family guard: %#v", rule)
+		}
+	}
+}
+
+func TestBuildConfigFiltersUnreachableIPv6DNS(t *testing.T) {
+	profile := strings.Replace(testProfile, "DNS = 1.1.1.1", "DNS = 2606:4700:4700::1111", 1)
+	data, err := BuildConfig(parseProfile(t, profile), DefaultSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := decodeRoot(t, data)["dns"].(map[string]any)["servers"].([]any)[0].(map[string]any)
+	if server["server"] != "1.1.1.1" || server["tag"] != "cloudflare-ipv4" {
+		t.Fatalf("unreachable profile DNS was not replaced safely: %#v", server)
+	}
+}
+
+func TestBuildConfigIPv6OnlyProfile(t *testing.T) {
+	profile := strings.Replace(dualStackTestProfile, "Address = 10.77.77.2/32, fd42:42:42::2/128", "Address = fd42:42:42::2/128", 1)
+	profile = strings.Replace(profile, "DNS = 1.1.1.1, 2606:4700:4700::1111", "DNS = 2606:4700:4700::1111", 1)
+	profile = strings.Replace(profile, "AllowedIPs = 0.0.0.0/0, ::/0", "AllowedIPs = ::/0", 1)
+	data, err := BuildConfig(parseProfile(t, profile), DefaultSettings())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dns := decodeRoot(t, data)["dns"].(map[string]any)
+	if dns["strategy"] != "ipv6_only" {
+		t.Fatalf("DNS strategy = %v, want ipv6_only", dns["strategy"])
+	}
+	rule := findRule(t, routeRules(t, decodeRoute(t, data)), "ip_version")
+	if rule["ip_version"] != float64(4) || rule["action"] != "reject" {
+		t.Fatalf("IPv4 guard = %#v, want reject", rule)
 	}
 }
 
@@ -363,8 +482,8 @@ func TestSettingsRemainSeparateForUnicodeProfiles(t *testing.T) {
 }
 
 func TestBundledEngineIntegrity(t *testing.T) {
-	enginePath := filepath.Clean(filepath.Join("..", "..", "engine", "amnezia-box.exe"))
-	if _, err := os.Stat(enginePath); err != nil {
+	enginePath := testEnginePath()
+	if enginePath == "" {
 		t.Skip("bundled engine is not available")
 	}
 	if err := VerifyEngine(enginePath); err != nil {
@@ -380,22 +499,23 @@ func TestBundledEngineIntegrity(t *testing.T) {
 }
 
 func TestGeneratedConfigsPassBundledEngineCheck(t *testing.T) {
-	enginePath := filepath.Clean(filepath.Join("..", "..", "engine", "amnezia-box.exe"))
-	if _, err := os.Stat(enginePath); err != nil {
+	enginePath := testEnginePath()
+	if enginePath == "" {
 		t.Skip("bundled engine is not available")
 	}
 
 	cases := []struct {
 		name     string
+		profile  string
 		settings RoutingSettings
 	}{
-		{name: "all", settings: DefaultSettings()},
-		{name: "selected", settings: func() RoutingSettings {
+		{name: "all", profile: testProfile, settings: DefaultSettings()},
+		{name: "selected", profile: testProfile, settings: func() RoutingSettings {
 			settings := DefaultSettings()
 			settings.Mode = ModeSelected
 			return settings
 		}()},
-		{name: "all with custom rules", settings: func() RoutingSettings {
+		{name: "all with custom rules", profile: testProfile, settings: func() RoutingSettings {
 			settings := DefaultSettings()
 			settings.CustomRules = []CustomRule{
 				{ID: "app", Name: "App", Kind: RuleApplication, Value: "example.exe", Target: TargetVPN, Enabled: true},
@@ -404,11 +524,17 @@ func TestGeneratedConfigsPassBundledEngineCheck(t *testing.T) {
 			}
 			return settings
 		}()},
+		{name: "dual stack", profile: dualStackTestProfile, settings: DefaultSettings()},
+		{name: "ipv6 only", profile: func() string {
+			profile := strings.Replace(dualStackTestProfile, "Address = 10.77.77.2/32, fd42:42:42::2/128", "Address = fd42:42:42::2/128", 1)
+			profile = strings.Replace(profile, "DNS = 1.1.1.1, 2606:4700:4700::1111", "DNS = 2606:4700:4700::1111", 1)
+			return strings.Replace(profile, "AllowedIPs = 0.0.0.0/0, ::/0", "AllowedIPs = ::/0", 1)
+		}(), settings: DefaultSettings()},
 	}
 
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			data, err := BuildConfig(parseTestProfile(t), test.settings)
+			data, err := BuildConfig(parseProfile(t, test.profile), test.settings)
 			if err != nil {
 				t.Fatal(err)
 			}

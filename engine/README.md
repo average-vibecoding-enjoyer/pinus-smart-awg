@@ -5,9 +5,12 @@ Release builds use `https://github.com/hoaxisr/amnezia-box` at tag
 `f40548f91a14582975096d0310e3c6afd44656f8`.
 
 Before compilation, `amnezia-box-security.patch` is applied to that exact
-revision. The patch only updates the Go language floor and pinned
-`golang.org/x/*` modules to versions containing the current security fixes.
-The build fails if the patch no longer applies cleanly.
+revision. The patch updates the Go language floor and pinned `golang.org/x/*`
+modules to versions containing the current security fixes. It also bounds AWG
+endpoint DNS resolution, safely rejects empty answers, and prefers IPv4 before
+falling back to IPv6 so Wi-Fi/cellular transitions cannot pick an unusable
+address merely because it appeared first. The build fails if the patch no
+longer applies cleanly.
 After applying it, the builder runs `go mod tidy` and verifies the exact
 resulting `go.sum` SHA-256 before compiling anything.
 

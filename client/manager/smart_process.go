@@ -327,7 +327,7 @@ func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.Rout
 		}
 		if persistDesired {
 			if err := clearSmartDesired(); err != nil {
-				_ = s.Stop(tunnelName)
+				_ = s.stopNativeTunnel(tunnelName)
 				return fmt.Errorf("clear smart recovery state: %w", err)
 			}
 			markSmartRecoveryHealthy()
@@ -372,27 +372,14 @@ func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.Rout
 	priorState, priorStateErr := s.State(tunnelName)
 	nativeWasRunning := !priorSmartActive && priorStateErr == nil && (priorState == TunnelStarted || priorState == TunnelStarting)
 
-	names, _ := conf.ListConfigNames()
-	for _, name := range names {
-		stopErr := UninstallTunnel(name)
-		if stopErr != nil && stopErr != windows.ERROR_SERVICE_DOES_NOT_EXIST && stopErr != windows.ERROR_SERVICE_MARKED_FOR_DELETE {
-			return fmt.Errorf("stop native tunnel %q: %w", name, stopErr)
-		}
-	}
-	for _, name := range names {
-		if waitErr := s.WaitForStop(name); waitErr != nil {
-			return waitErr
-		}
+	if err := s.stopAllNativeTunnels(); err != nil {
+		return err
 	}
 	restoreNative := func(cause error) error {
 		if !nativeWasRunning {
 			return cause
 		}
-		path, pathErr := c.Path()
-		if pathErr != nil {
-			return errors.Join(cause, fmt.Errorf("restore native AWG path: %w", pathErr))
-		}
-		if restoreErr := InstallTunnel(path); restoreErr != nil {
+		if restoreErr := s.Start(tunnelName); restoreErr != nil {
 			return errors.Join(cause, fmt.Errorf("restore native AWG: %w", restoreErr))
 		}
 		return fmt.Errorf("%w; native AWG was restored", cause)

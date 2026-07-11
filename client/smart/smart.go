@@ -18,9 +18,14 @@ import (
 
 // EngineSHA256 is replaced at link time by the multi-architecture release
 // builder. The default keeps local amd64 development builds usable.
-var EngineSHA256 = "682DCDCAACF8CF74B97D35B61CC29F5167443382A134A9D93D63142BB57C6FFD"
+var EngineSHA256 = "C2D3185CF2753427D996FEF40A5CAB0644AA7F63EB037E55F7A2EF8B79EE3533"
 
 const TunInterfaceName = "pinus-smart-next"
+
+var tunAddresses = []string{
+	"172.19.77.1/30",
+	"fdfe:dcba:9876::1/126",
+}
 
 func programDataDir() string {
 	if root := os.Getenv("ProgramData"); root != "" {
@@ -207,30 +212,87 @@ var localCIDRs = []string{
 	"ff00::/8",
 }
 
-func dnsServers(config *conf.Config, detour string) []map[string]any {
-	servers := make([]map[string]any, 0, len(config.Interface.DNS))
-	for index, dns := range config.Interface.DNS {
-		if dns == nil {
-			continue
-		}
-		if ip := dns.To4(); ip != nil {
-			servers = append(servers, map[string]any{
-				"type":        "udp",
-				"tag":         fmt.Sprintf("profile-dns-%d", index),
-				"server":      net.IP(ip).String(),
-				"server_port": 53,
-				"detour":      detour,
-			})
+type profileFamilies struct {
+	ipv4 bool
+	ipv6 bool
+}
+
+func detectProfileFamilies(config *conf.Config) profileFamilies {
+	var interfaceIPv4, interfaceIPv6 bool
+	for _, address := range config.Interface.Addresses {
+		if address.IP.To4() != nil {
+			interfaceIPv4 = true
+		} else if address.IP.To16() != nil {
+			interfaceIPv6 = true
 		}
 	}
-	if len(servers) == 0 {
+
+	var defaultIPv4, defaultIPv6 bool
+	for _, peer := range config.Peers {
+		for _, allowed := range peer.AllowedIPs {
+			if allowed.Cidr != 0 {
+				continue
+			}
+			if allowed.IP.To4() != nil {
+				defaultIPv4 = true
+			} else if allowed.IP.To16() != nil {
+				defaultIPv6 = true
+			}
+		}
+	}
+	return profileFamilies{
+		ipv4: interfaceIPv4 && defaultIPv4,
+		ipv6: interfaceIPv6 && defaultIPv6,
+	}
+}
+
+func (families profileFamilies) dnsStrategy() string {
+	switch {
+	case families.ipv4 && families.ipv6:
+		return "prefer_ipv4"
+	case families.ipv4:
+		return "ipv4_only"
+	default:
+		return "ipv6_only"
+	}
+}
+
+func (families profileFamilies) accepts(ip net.IP) bool {
+	if ip.To4() != nil {
+		return families.ipv4
+	}
+	return ip.To16() != nil && families.ipv6
+}
+
+func dnsServers(config *conf.Config, detour string, families profileFamilies) []map[string]any {
+	servers := make([]map[string]any, 0, len(config.Interface.DNS))
+	seen := make(map[string]bool)
+	addServer := func(tag, address string) {
+		if address == "" || seen[address] {
+			return
+		}
+		seen[address] = true
 		servers = append(servers, map[string]any{
 			"type":        "udp",
-			"tag":         "cloudflare",
-			"server":      "1.1.1.1",
+			"tag":         tag,
+			"server":      address,
 			"server_port": 53,
 			"detour":      detour,
 		})
+	}
+	for _, dns := range config.Interface.DNS {
+		if dns == nil || !families.accepts(dns) {
+			continue
+		}
+		addServer(fmt.Sprintf("profile-dns-%d", len(servers)), dns.String())
+	}
+	if len(servers) == 0 {
+		if families.ipv4 {
+			addServer("cloudflare-ipv4", "1.1.1.1")
+		}
+		if families.ipv6 {
+			addServer("cloudflare-ipv6", "2606:4700:4700::1111")
+		}
 	}
 	return servers
 }
@@ -321,10 +383,14 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 	if err != nil {
 		return nil, err
 	}
+	families := detectProfileFamilies(config)
+	if !families.ipv4 && !families.ipv6 {
+		return nil, errors.New("smart mode requires an IPv4 or IPv6 default AllowedIPs route with a matching interface address")
+	}
 	// Keep DNS inside the encrypted tunnel in every split-routing mode. Domain
 	// rules still decide where the resolved connection goes, while resolution
 	// itself cannot be poisoned or delayed by the local network.
-	servers := dnsServers(config, "awg-out")
+	servers := dnsServers(config, "awg-out", families)
 	finalDNS := "cloudflare"
 	if tag, ok := servers[0]["tag"].(string); ok {
 		finalDNS = tag
@@ -354,6 +420,16 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 	if settings.Mode == ModeSelected {
 		rules = append(rules, serviceRuleObjects(settings, "awg-out")...)
 		finalOutbound = "direct"
+	} else {
+		// A full-tunnel policy must never silently fall back to the physical
+		// interface for a family the imported AWG profile cannot carry. Direct
+		// custom exceptions are above these guards and remain intentional.
+		if !families.ipv4 {
+			rules = append(rules, map[string]any{"ip_version": 4, "action": "reject"})
+		}
+		if !families.ipv6 {
+			rules = append(rules, map[string]any{"ip_version": 6, "action": "reject"})
+		}
 	}
 
 	boxConfig := map[string]any{
@@ -364,7 +440,7 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 		"dns": map[string]any{
 			"servers":         servers,
 			"final":           finalDNS,
-			"strategy":        "ipv4_only",
+			"strategy":        families.dnsStrategy(),
 			"reverse_mapping": true,
 			"cache_capacity":  4096,
 		},
@@ -374,7 +450,7 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 				"type":                     "tun",
 				"tag":                      "tun-in",
 				"interface_name":           TunInterfaceName,
-				"address":                  []string{"172.19.77.1/30"},
+				"address":                  tunAddresses,
 				"mtu":                      1400,
 				"auto_route":               true,
 				"strict_route":             true,
