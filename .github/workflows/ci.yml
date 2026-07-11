@@ -34,7 +34,7 @@ jobs:
         run: ./build-public-release.ps1 -Architectures amd64 -SkipInstallers
 
       - name: Upload smoke-test package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: pinus-smart-awg-x64-smoke
           path: release/
