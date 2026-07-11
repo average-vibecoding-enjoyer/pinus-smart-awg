@@ -9,6 +9,7 @@
     <?define DocsComponentGuid = "{542AD8C8-CFE5-452B-AC62-4A9385F8D7CE}" ?>
     <?define StartMenuComponentGuid = "{B4581613-B4D3-443C-95BB-BEA8902DB12E}" ?>
     <?define DesktopComponentGuid = "{515C49EF-C827-497E-B8C9-E9593C0C1C97}" ?>
+    <?define RegistrySearchWin64 = "no" ?>
   <?elseif $(var.Platform) = "arm64" ?>
     <?define ProgramFilesFolderId = "ProgramFiles64Folder" ?>
     <?define ComponentWin64 = "yes" ?>
@@ -18,6 +19,7 @@
     <?define DocsComponentGuid = "{772D3625-0911-4146-89F3-CBB536AE713C}" ?>
     <?define StartMenuComponentGuid = "{87275C9D-5244-40C7-B141-840204257989}" ?>
     <?define DesktopComponentGuid = "{42832971-72D2-470B-9F08-5FB769EEF84B}" ?>
+    <?define RegistrySearchWin64 = "yes" ?>
   <?else ?>
     <?define ProgramFilesFolderId = "ProgramFiles64Folder" ?>
     <?define ComponentWin64 = "yes" ?>
@@ -27,6 +29,7 @@
     <?define DocsComponentGuid = "{325C69ED-2D07-43CC-A276-6F0E3AE0E996}" ?>
     <?define StartMenuComponentGuid = "{56E7D745-2F16-49CF-80C4-E066A6B67A58}" ?>
     <?define DesktopComponentGuid = "{52CEFB3F-AAA7-4209-80AC-32A909F738E8}" ?>
+    <?define RegistrySearchWin64 = "yes" ?>
   <?endif ?>
 
   <Product
@@ -54,9 +57,18 @@
     <Property Id="ARPURLINFOABOUT" Value="https://t.me/MEN9_HET" />
     <Property Id="ARPCONTACT" Value="https://t.me/MEN9_HET" />
     <Property Id="MSIFASTINSTALL" Value="1" />
+    <Property Id="PINUS_WINDOWS_BUILD">
+      <RegistrySearch
+        Id="PinusWindowsBuildSearch"
+        Root="HKLM"
+        Key="SOFTWARE\Microsoft\Windows NT\CurrentVersion"
+        Name="CurrentBuildNumber"
+        Type="raw"
+        Win64="$(var.RegistrySearchWin64)" />
+    </Property>
     <Icon Id="PinusIcon" SourceFile="$(var.IconPath)" />
 
-    <Condition Message="Windows 10 or later is required.">Installed OR VersionNT &gt;= 1000</Condition>
+    <Condition Message="Windows 10 or later is required.">Installed OR (PINUS_WINDOWS_BUILD AND PINUS_WINDOWS_BUILD &gt;= 10240)</Condition>
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="$(var.ProgramFilesFolderId)">
