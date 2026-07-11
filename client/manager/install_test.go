@@ -7,9 +7,24 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/amnezia-vpn/amneziawg-windows-client/version"
+	"golang.org/x/sys/windows/svc/mgr"
 )
+
+func TestManagerRecoveryActionsEscalateAndRemainBounded(t *testing.T) {
+	actions := managerRecoveryActions()
+	if len(actions) != 3 {
+		t.Fatalf("recovery actions = %d, want 3", len(actions))
+	}
+	want := []time.Duration{2 * time.Second, 5 * time.Second, 15 * time.Second}
+	for index, action := range actions {
+		if action.Type != mgr.ServiceRestart || action.Delay != want[index] {
+			t.Fatalf("action %d = %#v, want restart after %s", index, action, want[index])
+		}
+	}
+}
 
 func TestVerifyPinnedFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.dll")

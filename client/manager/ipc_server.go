@@ -137,6 +137,7 @@ func (s *ManagerService) Start(tunnelName string) error {
 }
 
 func (s *ManagerService) Stop(tunnelName string) error {
+	desiredErr := clearSmartDesiredForTunnel(tunnelName)
 	var smartErr error
 	_, smartErr = smartStopTunnel(tunnelName)
 	nativeErr := UninstallTunnel(tunnelName)
@@ -152,7 +153,7 @@ func (s *ManagerService) Stop(tunnelName string) error {
 	if nativeErr == nil {
 		waitErr = s.WaitForStop(tunnelName)
 	}
-	return errors.Join(smartErr, nativeErr, waitErr)
+	return errors.Join(desiredErr, smartErr, nativeErr, waitErr)
 }
 
 func (s *ManagerService) WaitForStop(tunnelName string) error {
