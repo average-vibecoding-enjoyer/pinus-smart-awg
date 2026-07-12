@@ -1,0 +1,139 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#071426"/>
+      <stop offset="0.55" stop-color="#0a1d34"/>
+      <stop offset="1" stop-color="#0b2030"/>
+    </linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#31b8ff"/>
+      <stop offset="1" stop-color="#4a7dff"/>
+    </linearGradient>
+    <linearGradient id="green" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#34dfb2"/>
+      <stop offset="1" stop-color="#16a88c"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffc56c"/>
+      <stop offset="1" stop-color="#ff8a5b"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" fill="none" stroke="#89b8df" stroke-opacity="0.055"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="18" flood-color="#02070e" flood-opacity="0.45"/>
+    </filter>
+    <marker id="arrowCyan" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0L12 6L0 12Z" fill="#37b6ff"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M0 0L12 6L0 12Z" fill="#31d4a9"/>
+    </marker>
+    <style>
+      .title { font: 700 48px "Segoe UI", Arial, sans-serif; fill: #f4f8ff; }
+      .subtitle { font: 400 23px "Segoe UI", Arial, sans-serif; fill: #9cb8d5; }
+      .label { font: 700 26px "Segoe UI", Arial, sans-serif; fill: #f4f8ff; }
+      .body { font: 400 19px "Segoe UI", Arial, sans-serif; fill: #b7cbe0; }
+      .small { font: 600 16px "Segoe UI", Arial, sans-serif; fill: #93b3cf; letter-spacing: 0.6px; }
+      .badge { font: 700 14px "Segoe UI", Arial, sans-serif; fill: #06121f; letter-spacing: 0.8px; }
+      .mono { font: 600 17px Consolas, monospace; fill: #d7e9f8; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <rect width="1600" height="900" fill="url(#grid)"/>
+  <circle cx="1420" cy="80" r="260" fill="#2ab5ff" opacity="0.045"/>
+  <circle cx="90" cy="810" r="300" fill="#31d4a9" opacity="0.035"/>
+
+  <text x="92" y="88" class="title">Как проходит трафик в Pinus Smart AWG</text>
+  <text x="92" y="126" class="subtitle">UI формирует политику, служба управляет жизненным циклом, engine принимает решения по каждому соединению</text>
+
+  <g filter="url(#shadow)">
+    <rect x="92" y="190" width="356" height="522" rx="24" fill="#0d2744" stroke="#285274" stroke-width="2"/>
+    <rect x="116" y="216" width="132" height="28" rx="14" fill="url(#green)"/>
+    <text x="182" y="235" text-anchor="middle" class="badge">USER SPACE</text>
+    <text x="116" y="296" class="label">Windows UI</text>
+    <text x="116" y="330" class="body">Профили, режимы и статус</text>
+
+    <rect x="116" y="374" width="308" height="72" rx="14" fill="#123557" stroke="#2c5f85"/>
+    <circle cx="146" cy="410" r="10" fill="#35b9ff"/>
+    <text x="170" y="404" class="small">ПРОФИЛЬ</text>
+    <text x="170" y="429" class="body">AmneziaWG .conf / ZIP</text>
+
+    <rect x="116" y="462" width="308" height="96" rx="14" fill="#123557" stroke="#2c5f85"/>
+    <circle cx="146" cy="498" r="10" fill="#31d4a9"/>
+    <text x="170" y="493" class="small">ПОЛИТИКА</text>
+    <text x="170" y="519" class="body">Приложение · домен · IP/CIDR</text>
+    <text x="170" y="544" class="body">VPN или напрямую</text>
+
+    <rect x="116" y="588" width="308" height="88" rx="14" fill="#0a1d33" stroke="#244865"/>
+    <text x="136" y="621" class="small">МИНИМУМ ПРАВ</text>
+    <text x="136" y="644" class="body">UI работает без лишних</text>
+    <text x="136" y="668" class="body">администраторских привилегий</text>
+  </g>
+
+  <path d="M448 436H534" stroke="#37b6ff" stroke-width="4" marker-end="url(#arrowCyan)"/>
+  <rect x="465" y="394" width="72" height="27" rx="13" fill="#0b1a2d" stroke="#2d6e96"/>
+  <text x="501" y="413" text-anchor="middle" class="small">IPC</text>
+
+  <g filter="url(#shadow)">
+    <rect x="548" y="190" width="424" height="522" rx="24" fill="#10243b" stroke="#496987" stroke-width="2"/>
+    <rect x="572" y="216" width="180" height="28" rx="14" fill="url(#amber)"/>
+    <text x="662" y="235" text-anchor="middle" class="badge">WINDOWS SERVICE</text>
+    <text x="572" y="296" class="label">Manager</text>
+    <text x="572" y="330" class="body">Привилегированная управляющая часть</text>
+
+    <rect x="572" y="374" width="376" height="96" rx="14" fill="#172f49" stroke="#526f89"/>
+    <text x="596" y="406" class="small">ЖИЗНЕННЫЙ ЦИКЛ</text>
+    <text x="596" y="434" class="body">Старт → проверка → остановка</text>
+    <text x="596" y="458" class="body">Новый профиль только после stop</text>
+
+    <rect x="572" y="486" width="376" height="104" rx="14" fill="#172f49" stroke="#526f89"/>
+    <text x="596" y="518" class="small">RECOVERY SUPERVISOR</text>
+    <text x="596" y="546" class="body">desired state · сеть · сон · health check</text>
+    <text x="596" y="574" class="mono">1s  2s  5s  10s  30s  60s</text>
+
+    <rect x="572" y="606" width="376" height="70" rx="14" fill="#0b1c30" stroke="#34516c"/>
+    <text x="596" y="634" class="small">КОМПИЛЯЦИЯ</text>
+    <text x="596" y="660" class="body">Понятные правила → runtime JSON</text>
+  </g>
+
+  <path d="M972 436H1058" stroke="#37b6ff" stroke-width="4" marker-end="url(#arrowCyan)"/>
+  <text x="1014" y="410" text-anchor="middle" class="small">CONFIG</text>
+
+  <g filter="url(#shadow)">
+    <rect x="1072" y="190" width="436" height="296" rx="24" fill="#102a42" stroke="#277db0" stroke-width="2"/>
+    <rect x="1096" y="216" width="158" height="28" rx="14" fill="url(#cyan)"/>
+    <text x="1175" y="235" text-anchor="middle" class="badge">DATA PLANE</text>
+    <text x="1096" y="296" class="label">amnezia-box</text>
+    <text x="1096" y="330" class="body">AWG endpoint + routing engine</text>
+
+    <rect x="1096" y="370" width="180" height="80" rx="14" fill="#153b5c" stroke="#2f6c96"/>
+    <text x="1116" y="400" class="small">MATCH</text>
+    <text x="1116" y="422" class="body">process · domain</text>
+    <text x="1116" y="444" class="body">IP/CIDR</text>
+
+    <rect x="1292" y="370" width="192" height="80" rx="14" fill="#153b5c" stroke="#2f6c96"/>
+    <text x="1312" y="400" class="small">TUN</text>
+    <text x="1312" y="427" class="body">Wintun · strict route</text>
+  </g>
+
+  <path d="M1290 486V544H1167V602" fill="none" stroke="#37b6ff" stroke-width="4" marker-end="url(#arrowCyan)"/>
+  <path d="M1290 486V544H1413V602" fill="none" stroke="#31d4a9" stroke-width="4" marker-end="url(#arrowGreen)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="1056" y="616" width="224" height="122" rx="20" fill="#123a5d" stroke="#32aef3" stroke-width="2"/>
+    <text x="1080" y="654" class="small">OUTBOUND</text>
+    <text x="1080" y="689" class="label">AWG</text>
+    <text x="1080" y="716" style="font:400 16px 'Segoe UI',Arial,sans-serif;fill:#b7cbe0">Зашифрованный туннель</text>
+
+    <rect x="1300" y="616" width="208" height="122" rx="20" fill="#113d3b" stroke="#31d4a9" stroke-width="2"/>
+    <text x="1324" y="654" class="small">OUTBOUND</text>
+    <text x="1324" y="689" class="label">Direct</text>
+    <text x="1324" y="716" style="font:400 17px 'Segoe UI',Arial,sans-serif;fill:#b7cbe0">Физический интерфейс</text>
+  </g>
+
+  <rect x="92" y="778" width="1416" height="70" rx="18" fill="#0c2035" stroke="#263f57"/>
+  <circle cx="126" cy="813" r="8" fill="#ffc56c"/>
+  <text x="150" y="820" class="body">Системные исключения не дают завернуть endpoint VPN внутрь собственного туннеля; DNS перехватывается одной политикой.</text>
+</svg>
