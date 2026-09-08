@@ -411,11 +411,14 @@ func TestBuildConfigDualStackProfileUsesBothDNSFamilies(t *testing.T) {
 		t.Fatalf("DNS strategy = %v, want prefer_ipv4", dns["strategy"])
 	}
 	servers := dns["servers"].([]any)
-	if len(servers) != 2 {
-		t.Fatalf("DNS servers = %#v, want both profile families", servers)
+	if len(servers) != 3 {
+		t.Fatalf("DNS servers = %#v, want both profile families and direct resolver", servers)
 	}
 	if servers[0].(map[string]any)["server"] != "1.1.1.1" || servers[1].(map[string]any)["server"] != "2606:4700:4700::1111" {
 		t.Fatalf("unexpected DNS servers: %#v", servers)
+	}
+	if servers[2].(map[string]any)["tag"] != "direct-dns" {
+		t.Fatal("direct resolver is missing")
 	}
 	for _, value := range routeRules(t, decodeRoute(t, data)) {
 		rule := value.(map[string]any)

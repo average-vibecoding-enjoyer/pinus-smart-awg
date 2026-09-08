@@ -426,13 +426,10 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 	}
 
 	dnsRules := policyDNSRules(settings, finalDNS, families.dnsStrategy())
-	needsDirectDNS := false
-	for _, rule := range dnsRules {
-		needsDirectDNS = needsDirectDNS || rule["server"] == "direct-dns"
-	}
-	if needsDirectDNS {
-		servers = append(servers, map[string]any{"type": "local", "tag": "direct-dns", "detour": "direct", "prefer_go": true})
-	}
+	// Direct destinations can also arrive as hostnames (for example from
+	// SOCKS or application rules), without matching an explicit DNS rule.
+	// Give the direct outbound its own resolver instead of inheriting AWG DNS.
+	servers = append(servers, map[string]any{"type": "local", "tag": "direct-dns", "detour": "direct", "prefer_go": true})
 	rules := []map[string]any{
 		{
 			"action":  "sniff",
@@ -503,6 +500,9 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 			map[string]any{
 				"type": "direct",
 				"tag":  "direct",
+				"domain_resolver": map[string]any{
+					"server": "direct-dns", "strategy": "prefer_ipv4",
+				},
 			},
 		},
 		"route": map[string]any{

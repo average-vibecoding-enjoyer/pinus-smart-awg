@@ -23,6 +23,14 @@ func TestCompiledRegionalPolicyMatrix(t *testing.T) {
 					root := decodeRoot(t, data)
 					route := root["route"].(map[string]any)
 					dns := root["dns"].(map[string]any)
+					direct := root["outbounds"].([]any)[0].(map[string]any)
+					resolver, ok := direct["domain_resolver"].(map[string]any)
+					if !ok || resolver["server"] != "direct-dns" || resolver["strategy"] != "prefer_ipv4" {
+						t.Fatal("direct hostname connections inherit the VPN resolver")
+					}
+					if root["inbounds"].([]any)[0].(map[string]any)["strict_route"] != true {
+						t.Fatal("direct exceptions must not disable DNS leak protection")
+					}
 					for _, item := range []struct {
 						domain string
 						vpn    bool

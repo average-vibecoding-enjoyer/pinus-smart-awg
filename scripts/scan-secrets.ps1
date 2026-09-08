@@ -11,6 +11,9 @@ $patterns = [ordered]@{
     "PEM private key"     = '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'
 }
 $allowedTestFixtures = @{
+    "tests/directdns/direct_dns_test.go" = @(
+        "PrivateKey = AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE="
+    )
     "core/conf/awg31_test.go" = @(
         "PrivateKey = AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
         "HeaderProtectionKey = AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="

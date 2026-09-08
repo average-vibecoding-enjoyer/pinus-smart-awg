@@ -64,7 +64,7 @@ func NewManageTunnelsWindow(preview bool) (*ManageTunnelsWindow, error) {
 	if icon, iconErr := loadLogoIcon(32); iconErr == nil {
 		window.SetIcon(icon)
 	}
-	title := "Pinus Smart AWG Preview 3.3.1"
+	title := "Pinus Smart AWG Preview 3.3.2"
 	if preview {
 		title += " — UI Preview"
 	}
