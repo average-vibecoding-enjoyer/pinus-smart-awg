@@ -24,6 +24,7 @@ import (
 	"github.com/amnezia-vpn/amneziawg-windows-client/manager"
 	clientservices "github.com/amnezia-vpn/amneziawg-windows-client/services"
 	"github.com/amnezia-vpn/amneziawg-windows-client/smart"
+	"github.com/amnezia-vpn/amneziawg-windows-client/version"
 	"github.com/amnezia-vpn/amneziawg-windows/conf"
 )
 
@@ -67,8 +68,6 @@ type Dashboard struct {
 	selected        int
 	activeName      string
 	settings        smart.RoutingSettings
-	preferences     smart.UserPreferences
-	pendingProfiles map[string]bool
 	focusID         string
 	serviceScroll   int
 	globalState     manager.TunnelState
@@ -111,7 +110,6 @@ func NewDashboard(parent walk.Container, preview bool) (*Dashboard, error) {
 		presetContext: presetContext,
 		presetCancel:  presetCancel,
 		presetUpdate:  make(chan struct{}, 1),
-		preferences:   smart.LoadPreferences(), pendingProfiles: make(map[string]bool),
 	}
 	widget, err := walk.NewCustomWidgetPixels(parent, win.WS_TABSTOP, dashboard.paint)
 	if err != nil {
@@ -317,7 +315,7 @@ func (dashboard *Dashboard) loadProfiles() {
 	dashboard.profiles = profiles
 	dashboard.activeName = activeName
 	dashboard.selected = -1
-	if activeName != "" && !dashboard.preferences.HoldConnection {
+	if activeName != "" {
 		selectedName = activeName
 	}
 	for i := range dashboard.profiles {
@@ -569,8 +567,12 @@ func (dashboard *Dashboard) activate(id string) {
 		dashboard.ShowPage(pageRules)
 	case "nav:profiles", "home:profile":
 		dashboard.ShowPage(pageProfiles)
-	case "nav:tools":
-		dashboard.showTools()
+	case "routing:details":
+		dashboard.showRoutingActions()
+	case "profiles:actions":
+		dashboard.showProfileActions()
+	case "diagnostics:actions":
+		dashboard.showDiagnosticActions()
 	case "nav:diagnostics":
 		dashboard.ShowPage(pageDiagnostics)
 	case "power":
@@ -714,7 +716,6 @@ func (dashboard *Dashboard) startSelectedProfileWithRollback(rollbackSettings *s
 				atomic.StoreUint32(&dashboard.operation, 0)
 				dashboard.globalState = manager.TunnelStarted
 				dashboard.activeName = name
-				delete(dashboard.pendingProfiles, name)
 				dashboard.connectedAt = time.Now()
 				for i := range dashboard.profiles {
 					if dashboard.profiles[i].Tunnel.Name == name {
@@ -758,7 +759,6 @@ func (dashboard *Dashboard) startSelectedProfileWithRollback(rollbackSettings *s
 			} else {
 				dashboard.globalState = manager.TunnelStarted
 				dashboard.activeName = name
-				delete(dashboard.pendingProfiles, name)
 				dashboard.connectedAt = time.Now()
 			}
 			_ = dashboard.Invalidate()
@@ -827,6 +827,9 @@ func (dashboard *Dashboard) stopConnection() {
 }
 
 func (dashboard *Dashboard) saveSettings(settings smart.RoutingSettings, restartActive bool) {
+	if dashboard.operationBusy() {
+		return
+	}
 	previousSettings := cloneRoutingSettings(dashboard.settings)
 	var err error
 	if len(settings.CatalogEnvelope) == 0 {
@@ -857,11 +860,6 @@ func (dashboard *Dashboard) saveSettings(settings smart.RoutingSettings, restart
 	dashboard.lastError = ""
 	_ = dashboard.Invalidate()
 	if restartActive && dashboard.globalState == manager.TunnelStarted && dashboard.activeName == profile.Tunnel.Name {
-		if dashboard.preferences.HoldConnection {
-			dashboard.pendingProfiles[profile.Tunnel.Name] = true
-			dashboard.lastError = "Настройки сохранены. Текущее подключение зафиксировано; примените изменения в «Управлении»."
-			return
-		}
 		if shouldDisconnectForRoutingSettings(normalized) {
 			dashboard.lastError = "VPN отключён: в режиме «Только выбранное» не осталось сервисов или правил через VPN."
 			dashboard.stopConnection()
@@ -972,7 +970,6 @@ func (dashboard *Dashboard) selectProfileWithActivation(index int, switchActive 
 	if index < 0 || index >= len(dashboard.profiles) || dashboard.operationBusy() {
 		return
 	}
-	switchActive = switchActive && !dashboard.preferences.HoldConnection
 	wasConnected := dashboard.globalState == manager.TunnelStarted && dashboard.activeName != ""
 	profile := dashboard.profiles[index]
 	settings := smart.DefaultSettings()
@@ -1027,24 +1024,14 @@ func (dashboard *Dashboard) editProfile(index int) {
 	if config == nil {
 		return
 	}
-	dashboard.applyProfileEdit(index, config, false)
+	dashboard.applyProfileEdit(index, config)
 }
 
-func (dashboard *Dashboard) applyProfileEdit(index int, config *conf.Config, force bool) {
+func (dashboard *Dashboard) applyProfileEdit(index int, config *conf.Config) {
 	if index < 0 || index >= len(dashboard.profiles) || dashboard.operationBusy() {
 		return
 	}
 	profile := dashboard.profiles[index]
-	if !force && dashboard.preferences.HoldConnection && dashboard.activeName == profile.Tunnel.Name {
-		if err := smart.SavePendingProfile(profile.Tunnel.Name, config); err != nil {
-			dashboard.lastError = err.Error()
-		} else {
-			dashboard.pendingProfiles[profile.Tunnel.Name] = true
-			dashboard.lastError = "Редактирование сохранено отдельно. Нажмите «Применить» в Управлении, когда можно переподключиться."
-		}
-		_ = dashboard.Invalidate()
-		return
-	}
 	originalConfig, err := profile.Tunnel.StoredConfig()
 	if err != nil {
 		dashboard.lastError = err.Error()
@@ -1117,11 +1104,6 @@ func (dashboard *Dashboard) deleteProfile(index int) {
 		return
 	}
 	profile := dashboard.profiles[index]
-	if dashboard.preferences.HoldConnection && dashboard.activeName == profile.Tunnel.Name {
-		dashboard.lastError = "Активное подключение зафиксировано. Сначала отключите его явной кнопкой."
-		_ = dashboard.Invalidate()
-		return
-	}
 	if walk.MsgBox(dashboard.Form(), "Удалить профиль", fmt.Sprintf("Удалить VPN-профиль «%s»? Это действие нельзя отменить.", profile.Tunnel.Name), walk.MsgBoxYesNo|walk.MsgBoxIconWarning) != walk.DlgCmdYes {
 		return
 	}
@@ -1132,7 +1114,7 @@ func (dashboard *Dashboard) deleteProfile(index int) {
 	go func() {
 		err := profile.Tunnel.Delete()
 		if err == nil {
-			err = smart.DeleteSettings(profile.Tunnel.Name)
+			err = errors.Join(smart.DeleteSettings(profile.Tunnel.Name), smart.DeletePendingProfile(profile.Tunnel.Name))
 		}
 		dashboard.Synchronize(func() {
 			atomic.StoreUint32(&dashboard.operation, 0)
@@ -1300,7 +1282,7 @@ func (dashboard *Dashboard) openRuntimeFolder() {
 func (dashboard *Dashboard) copyDiagnostics() {
 	_, engineErr := smart.FindEnginePath()
 	presets := smart.ServiceCatalogStatus()
-	text := fmt.Sprintf("Pinus Smart AWG 3.3.0 Preview\r\nSaved routing mode: %s\r\nEngine integrity OK: %t\r\nTunnel state: %d\r\nPreset revision: %d\r\nPreset error present: %t\r\nLast error present: %t", dashboard.settings.Mode, engineErr == nil, dashboard.globalState, presets.Revision, presets.LastError != "", dashboard.lastError != "")
+	text := fmt.Sprintf("Pinus Smart AWG %s Preview\r\nSaved routing mode: %s\r\nEngine integrity OK: %t\r\nTunnel state: %d\r\nPreset revision: %d\r\nPreset error present: %t\r\nLast error present: %t", version.Number, dashboard.settings.Mode, engineErr == nil, dashboard.globalState, presets.Revision, presets.LastError != "", dashboard.lastError != "")
 	text += "\r\n\r\n" + dashboard.diagnostics.ShareableString()
 	if err := walk.Clipboard().SetText(text); err != nil {
 		dashboard.lastError = err.Error()

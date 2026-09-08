@@ -15,6 +15,7 @@ import (
 
 	"github.com/amnezia-vpn/amneziawg-windows-client/l18n"
 	"github.com/amnezia-vpn/amneziawg-windows-client/manager"
+	"github.com/amnezia-vpn/amneziawg-windows-client/smart"
 	"github.com/amnezia-vpn/amneziawg-windows-client/ui/syntax"
 	"github.com/amnezia-vpn/amneziawg-windows/conf"
 )
@@ -27,6 +28,7 @@ type EditDialog struct {
 	blockUntunneledTrafficCB        *walk.CheckBox
 	saveButton                      *walk.PushButton
 	config                          conf.Config
+	originalName                    string
 	lastPrivateKey                  string
 	blockUntunneledTraficCheckGuard bool
 }
@@ -52,6 +54,7 @@ func newEditDialog(owner walk.Form, tunnel *manager.Tunnel) (*EditDialog, error)
 	dlg := new(EditDialog)
 
 	var title string
+	var draftWarning string
 	if tunnel == nil {
 		title = l18n.Sprintf("Create new tunnel")
 	} else {
@@ -63,7 +66,19 @@ func newEditDialog(owner walk.Form, tunnel *manager.Tunnel) (*EditDialog, error)
 		pk, _ := conf.NewPrivateKey()
 		dlg.config = conf.Config{Interface: conf.Interface{PrivateKey: *pk}}
 	} else {
-		dlg.config, _ = tunnel.StoredConfig()
+		dlg.originalName = tunnel.Name
+		dlg.config, err = tunnel.StoredConfig()
+		if err != nil {
+			return nil, err
+		}
+		// Preserve edits saved by 3.3.0's removed hold workflow. They are
+		// displayed in the ordinary editor and applied only on Save.
+		pending, loadErr := smart.LoadPendingProfile(tunnel.Name)
+		if loadErr != nil {
+			draftWarning = "Не удалось прочитать черновик из 3.3.0. Открыт сохранённый профиль."
+		} else if pending != nil {
+			dlg.config = *pending
+		}
 	}
 
 	layout := walk.NewGridLayout()
@@ -113,16 +128,26 @@ func newEditDialog(owner walk.Form, tunnel *manager.Tunnel) (*EditDialog, error)
 	dlg.pubkeyEdit.SetText(l18n.Sprintf("(unknown)"))
 	dlg.pubkeyEdit.Accessibility().SetRole(walk.AccRoleStatictext)
 
+	syntaxRow := 2
+	if draftWarning != "" {
+		warningLabel, labelErr := walk.NewTextLabel(dlg)
+		if labelErr != nil {
+			return nil, labelErr
+		}
+		warningLabel.SetText(draftWarning)
+		layout.SetRange(warningLabel, walk.Rectangle{0, syntaxRow, 2, 1})
+		syntaxRow++
+	}
 	if dlg.syntaxEdit, err = syntax.NewSyntaxEdit(dlg); err != nil {
 		return nil, err
 	}
-	layout.SetRange(dlg.syntaxEdit, walk.Rectangle{0, 2, 2, 1})
+	layout.SetRange(dlg.syntaxEdit, walk.Rectangle{0, syntaxRow, 2, 1})
 
 	buttonsContainer, err := walk.NewComposite(dlg)
 	if err != nil {
 		return nil, err
 	}
-	layout.SetRange(buttonsContainer, walk.Rectangle{0, 3, 2, 1})
+	layout.SetRange(buttonsContainer, walk.Rectangle{0, syntaxRow + 1, 2, 1})
 	buttonsContainer.SetLayout(walk.NewHBoxLayout())
 	buttonsContainer.Layout().SetMargins(walk.Margins{})
 
@@ -328,7 +353,7 @@ func (dlg *EditDialog) onSaveButtonClicked() {
 	}
 	newNameLower := strings.ToLower(newName)
 
-	if newNameLower != strings.ToLower(dlg.config.Name) {
+	if newNameLower != strings.ToLower(dlg.originalName) {
 		existingTunnelList, err := manager.IPCClientTunnels()
 		if err != nil {
 			showWarningCustom(dlg, l18n.Sprintf("Unable to list existing tunnels"), err.Error())

@@ -1,6 +1,7 @@
 # Build output
 /dist/
 /release/
+/release-3.3.1/
 /.build/
 /.cache/
 /.verify/

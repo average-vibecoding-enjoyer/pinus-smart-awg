@@ -93,22 +93,3 @@ func RestoreSettingsRevision(name string, index int) error {
 	}
 	return SaveSettings(name, history[index].Settings)
 }
-
-type UserPreferences struct {
-	HoldConnection bool `json:"hold_connection"`
-}
-
-func LoadPreferences() UserPreferences {
-	prefs := UserPreferences{HoldConnection: true}
-	if data, err := os.ReadFile(filepath.Join(UserSettingsDir(), "preferences.json")); err == nil {
-		_ = json.Unmarshal(data, &prefs)
-	}
-	return prefs
-}
-func SavePreferences(prefs UserPreferences) error {
-	data, err := json.Marshal(prefs)
-	if err != nil {
-		return err
-	}
-	return writeAtomic(filepath.Join(UserSettingsDir(), "preferences.json"), data)
-}

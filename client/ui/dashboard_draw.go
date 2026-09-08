@@ -604,7 +604,6 @@ func (dashboard *Dashboard) drawSidebar(canvas *walk.Canvas, bounds walk.Rectang
 		itemY += dashboard.px(52)
 	}
 
-	dashboard.drawButton(canvas, "nav:tools", "Управление", "\ue713", walk.Rectangle{X: dashboard.px(10), Y: itemY + dashboard.px(6), Width: bounds.Width - dashboard.px(20), Height: dashboard.px(42)}, false, dashboard.operationBusy())
 	diagnosticBounds := walk.Rectangle{X: dashboard.px(10), Y: bounds.Y + bounds.Height - dashboard.px(62), Width: bounds.Width - dashboard.px(20), Height: dashboard.px(44)}
 	selected := dashboard.page == pageDiagnostics
 	if selected || dashboard.hoverID == "nav:diagnostics" {
@@ -632,7 +631,22 @@ func pageCopy(page dashboardPage) (string, string) {
 
 func (dashboard *Dashboard) drawHeader(canvas *walk.Canvas, content walk.Rectangle) {
 	title, subtitle := pageCopy(dashboard.page)
-	dashboard.drawText(canvas, title, dashboard.theme.titleFont, dashboard.theme.textColor, walk.Rectangle{X: content.X, Y: content.Y, Width: content.Width, Height: dashboard.px(34)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
+	titleWidth := content.Width
+	var actionID, actionLabel string
+	switch dashboard.page {
+	case pageRouting:
+		actionID, actionLabel = "routing:details", "Подробнее"
+	case pageProfiles:
+		actionID, actionLabel = "profiles:actions", "Действия"
+	case pageDiagnostics:
+		actionID, actionLabel = "diagnostics:actions", "Инструменты"
+	}
+	if actionID != "" {
+		buttonWidth := dashboard.px(160)
+		titleWidth -= buttonWidth + dashboard.px(16)
+		dashboard.drawButton(canvas, actionID, actionLabel, "\ue712", walk.Rectangle{X: content.X + content.Width - buttonWidth, Y: content.Y, Width: buttonWidth, Height: dashboard.px(34)}, false, dashboard.operationBusy())
+	}
+	dashboard.drawText(canvas, title, dashboard.theme.titleFont, dashboard.theme.textColor, walk.Rectangle{X: content.X, Y: content.Y, Width: titleWidth, Height: dashboard.px(34)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
 	dashboard.drawText(canvas, subtitle, dashboard.theme.smallFont, dashboard.theme.mutedColor, walk.Rectangle{X: content.X, Y: content.Y + dashboard.px(34), Width: content.Width, Height: dashboard.px(22)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
 }
 
@@ -644,7 +658,7 @@ func stateCopy(state manager.TunnelState, busy bool) (string, string, walk.Color
 		return "Подключаем VPN", "Проверяем профиль и поднимаем маршруты", walk.RGB(54, 169, 255)
 	}
 	if state == manager.TunnelStarted {
-		return "Туннель включён", "Доступность интернета можно проверить в Управлении", walk.RGB(46, 210, 139)
+		return "Туннель включён", "Доступность интернета можно проверить в Диагностике", walk.RGB(46, 210, 139)
 	}
 	return "VPN отключён", "При активной защите интернет может оставаться заблокированным", walk.RGB(158, 181, 205)
 }

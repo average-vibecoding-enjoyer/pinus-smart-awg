@@ -24,7 +24,7 @@ func (dashboard *Dashboard) recoveryOptionsDialog() {
 	protection.SetChecked(dashboard.settings.Protection == "all")
 	toolLabel(d, "Защита распространяется и на прямые исключения, когда движок остановлен.")
 	toolLabel(d, "Preview: фильтры сохраняются после сбоя менеджера; работа до запуска BFE не покрывается.")
-	toolLabel(d, "Снять блокировку: Управление → Отключить VPN и снять блокировку Preview.")
+	toolLabel(d, "Снять блокировку: Диагностика → Инструменты → Отключить VPN и снять блокировку Preview.")
 	toolLabel(d, "Резервные профили по порядку, по одному имени в строке (до 8):")
 	fallback, _ := walk.NewTextEdit(d)
 	if fallback == nil {

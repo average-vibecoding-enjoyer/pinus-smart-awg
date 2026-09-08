@@ -107,6 +107,54 @@ func TestShouldDisconnectForEmptySelectedMode(t *testing.T) {
 	}
 }
 
+func TestLastRegionalServiceControlsSelectedTunnel(t *testing.T) {
+	for _, service := range []string{smart.VKServiceID, smart.RussianServiceID} {
+		t.Run(service, func(t *testing.T) {
+			settings := smart.DefaultSettings()
+			settings.Mode = smart.ModeSelected
+			settings.SelectedApps = nil
+			settings = settings.WithServiceVPN(service, true)
+			if shouldDisconnectForRoutingSettings(settings) {
+				t.Fatal("the remaining regional VPN service must keep the tunnel enabled")
+			}
+			settings = settings.WithServiceVPN(service, false)
+			if !shouldDisconnectForRoutingSettings(settings) {
+				t.Fatal("turning off the last VPN route must request disconnection")
+			}
+			settings.Mode = smart.ModeAll
+			settings = settings.WithServiceVPN(service, false)
+			if shouldDisconnectForRoutingSettings(settings) {
+				t.Fatal("a direct exception in full mode must keep the remaining Internet on VPN")
+			}
+		})
+	}
+}
+
+func TestSaveSettingsWhileBusyPreservesAppliedChoice(t *testing.T) {
+	t.Setenv("APPDATA", t.TempDir())
+	const name = "BusyPreview"
+	settings := smart.DefaultSettings()
+	if err := smart.SaveSettings(name, settings); err != nil {
+		t.Fatal(err)
+	}
+	dashboard := &Dashboard{
+		profiles: []profileInfo{{Tunnel: manager.Tunnel{Name: name}}},
+		selected: 0, activeName: name, globalState: manager.TunnelStarted,
+		settings: settings, operation: 1,
+	}
+	dashboard.saveSettings(settings.WithServiceVPN(smart.VKServiceID, false), true)
+	stored, err := smart.LoadSettings(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !stored.ServiceUsesVPN(smart.VKServiceID) || !dashboard.settings.ServiceUsesVPN(smart.VKServiceID) {
+		t.Fatal("a busy action saved a switch without being able to apply it")
+	}
+	if history, err := smart.LoadSettingsHistory(name); err != nil || len(history) != 0 {
+		t.Fatalf("busy action changed settings history: count=%d err=%v", len(history), err)
+	}
+}
+
 func TestServiceSectionCopyMatchesRoutingMode(t *testing.T) {
 	tests := []struct {
 		mode  smart.Mode

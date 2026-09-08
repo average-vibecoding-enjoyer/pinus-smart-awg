@@ -61,8 +61,16 @@ func (dashboard *Dashboard) toolError(err error) {
 	}
 }
 
-func (dashboard *Dashboard) showTools() {
-	d, err := toolDialog(dashboard.Form(), "Управление Pinus Preview", 600)
+type dashboardAction struct {
+	label string
+	run   func()
+}
+
+func (dashboard *Dashboard) showActions(title string, entries []dashboardAction) {
+	if dashboard.operationBusy() {
+		return
+	}
+	d, err := toolDialog(dashboard.Form(), title, 400)
 	if err != nil {
 		dashboard.toolError(err)
 		return
@@ -73,46 +81,10 @@ func (dashboard *Dashboard) showTools() {
 		return
 	}
 	actions.SetLayout(walk.NewVBoxLayout())
-	hold, err := walk.NewCheckBox(actions)
-	if err != nil {
-		return
-	}
-	hold.SetText("Фиксировать подключение — применять изменения только по кнопке")
-	hold.SetChecked(dashboard.preferences.HoldConnection)
-	hold.CheckedChanged().Attach(func() {
-		prefs := smart.UserPreferences{HoldConnection: hold.Checked()}
-		if !dashboard.preview {
-			if err := smart.SavePreferences(prefs); err != nil {
-				dashboard.toolError(err)
-				return
-			}
-		}
-		dashboard.preferences = prefs
-	})
-	toolLabel(actions, "Выбор профиля и правки сохраняются отдельно от работающего подключения.")
 	var next func()
-	add := func(label string, action func()) { toolButton(actions, label, func() { next = action; d.Accept() }) }
-	add("Найти профиль или правило (Ctrl+F)", dashboard.searchDialog)
-	add("Импортировать одноразовую ссылку из Pinus-бота", dashboard.importLinkDialog)
-	add("Защита при сбое и резервные профили", dashboard.recoveryOptionsDialog)
-	add("Отключить VPN и снять блокировку Preview", dashboard.stopConnection)
-	add("Применить настройки выбранного профиля (с переподключением)", dashboard.applyPending)
-	add("Применённые настройки активного подключения", dashboard.showAppliedSettings)
-	add("Проверить handshake / HTTPS через VPN", dashboard.probeConnection)
-	add("Почему приложение или сайт идёт этим маршрутом?", dashboard.explainRouteDialog)
-	add("Состав VK и «Белых списков»", func() { showToolText(dashboard.Form(), "Состав сервисов", smart.RegionalCatalogText()) })
-	add("История маршрутизации и восстановление", dashboard.restoreHistoryDialog)
-	add("Создать зашифрованную резервную копию", dashboard.exportEncryptedBackup)
-	add("Восстановить резервную копию в новые профили", dashboard.restoreEncryptedBackup)
-	add("Дублировать выбранный профиль", dashboard.duplicateSelectedProfile)
-	add("Применить последнюю проверенную версию пресетов", func() {
-		settings, err := smart.CaptureCatalog(dashboard.settings)
-		if err != nil {
-			dashboard.toolError(err)
-			return
-		}
-		dashboard.saveSettings(settings, true)
-	})
+	for _, entry := range entries {
+		toolButton(actions, entry.label, func() { next = entry.run; d.Accept() })
+	}
 	close := toolButton(d, "Закрыть", d.Accept)
 	d.SetCancelButton(close)
 	d.Run()
@@ -121,26 +93,40 @@ func (dashboard *Dashboard) showTools() {
 	}
 }
 
-func (dashboard *Dashboard) applyPending() {
-	if dashboard.selectedProfile() == nil || dashboard.operationBusy() {
-		return
-	}
-	if !dashboard.preview {
-		config, err := smart.LoadPendingProfile(dashboard.selectedProfile().Tunnel.Name)
-		if err != nil {
-			dashboard.toolError(err)
-			return
-		}
-		if config != nil {
-			dashboard.applyProfileEdit(dashboard.selected, config, true)
-			return
-		}
-	}
-	if shouldDisconnectForRoutingSettings(dashboard.settings) {
-		dashboard.stopConnection()
-		return
-	}
-	dashboard.startSelectedProfile()
+func (dashboard *Dashboard) showProfileActions() {
+	dashboard.showActions("Действия с профилями", []dashboardAction{
+		{"Найти профиль (Ctrl+F)", dashboard.searchDialog},
+		{"Импортировать одноразовую ссылку из Pinus-бота", dashboard.importLinkDialog},
+		{"Дублировать выбранный профиль", dashboard.duplicateSelectedProfile},
+		{"Защита при сбое и резервные профили", dashboard.recoveryOptionsDialog},
+		{"Создать зашифрованную резервную копию", dashboard.exportEncryptedBackup},
+		{"Восстановить резервную копию в новые профили", dashboard.restoreEncryptedBackup},
+	})
+}
+
+func (dashboard *Dashboard) showRoutingActions() {
+	dashboard.showActions("Подробнее о маршрутизации", []dashboardAction{
+		{"Почему приложение или сайт идёт этим маршрутом?", dashboard.explainRouteDialog},
+		{"Применённые настройки активного подключения", dashboard.showAppliedSettings},
+		{"Состав VK и «Белых списков»", func() { showToolText(dashboard.Form(), "Состав сервисов", smart.RegionalCatalogText()) }},
+		{"История маршрутизации и восстановление", dashboard.restoreHistoryDialog},
+		{"Обновить пресеты до последней проверенной версии", func() {
+			settings, err := smart.CaptureCatalog(dashboard.settings)
+			if err != nil {
+				dashboard.toolError(err)
+				return
+			}
+			dashboard.saveSettings(settings, true)
+		}},
+	})
+}
+
+func (dashboard *Dashboard) showDiagnosticActions() {
+	dashboard.showActions("Инструменты диагностики", []dashboardAction{
+		{"Проверить handshake / HTTPS через VPN", dashboard.probeConnection},
+		{"Применённые настройки активного подключения", dashboard.showAppliedSettings},
+		{"Отключить VPN и снять блокировку Preview", dashboard.stopConnection},
+	})
 }
 
 func (dashboard *Dashboard) explainRouteDialog() {
@@ -195,7 +181,7 @@ func (dashboard *Dashboard) restoreHistoryDialog() {
 	for i, r := range history {
 		labels[i] = r.At.Local().Format("02.01.2006 15:04:05") + " · " + string(r.Settings.Mode)
 	}
-	toolLabel(d, "Хранятся 12 предыдущих вариантов. Восстановление подчиняется фиксации подключения.")
+	toolLabel(d, "Хранятся 12 предыдущих вариантов. Восстановленный вариант сразу применяется к активному профилю.")
 	choice, _ := walk.NewComboBox(d)
 	if choice == nil {
 		return
