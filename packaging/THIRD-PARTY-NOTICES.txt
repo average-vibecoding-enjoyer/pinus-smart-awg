@@ -19,3 +19,5 @@ published by WireGuard LLC.
 
 Wintun source and releases:
 https://www.wintun.net/
+
+Preview 3.3.0: Go 1.26.6; amneziawg-go/v3 v3.1.20260828 (b5928efb6ca19f0153958460c3d141f04abc5c2e) with Pinus S4/CPS fixes. Full source and patch are distributed in the source package. Legacy v0.2.18 is a test-only compatibility dependency.

@@ -13,3 +13,4 @@
 *.exe binary
 *.msi binary
 *.zip binary
+/third_party/amneziawg-go-v3/** -text

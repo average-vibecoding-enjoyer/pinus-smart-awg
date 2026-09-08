@@ -23,7 +23,7 @@ type ManageTunnelsWindow struct {
 }
 
 const (
-	manageWindowWindowClass = "Pinus Smart AWG Next UI"
+	manageWindowWindowClass = "Pinus Smart AWG Preview UI"
 	raiseMsg                = win.WM_USER + 0x3510
 	aboutWireGuardCmd       = 0x37
 )
@@ -48,7 +48,7 @@ func NewManageTunnelsWindow(preview bool) (*ManageTunnelsWindow, error) {
 	}
 
 	window := &ManageTunnelsWindow{preview: preview}
-	window.SetName("PinusSmartAWGNext")
+	window.SetName("PinusSmartAWGPreview")
 	windowStyle := uint32(win.WS_OVERLAPPEDWINDOW | win.WS_CLIPCHILDREN)
 	windowExStyle := uint32(win.WS_EX_CONTROLPARENT)
 	if err = walk.InitWindow(window, nil, manageWindowWindowClass, windowStyle, windowExStyle); err != nil {
@@ -64,7 +64,7 @@ func NewManageTunnelsWindow(preview bool) (*ManageTunnelsWindow, error) {
 	if icon, iconErr := loadLogoIcon(32); iconErr == nil {
 		window.SetIcon(icon)
 	}
-	title := "Pinus Smart AWG"
+	title := "Pinus Smart AWG Preview 3.3.0"
 	if preview {
 		title += " — UI Preview"
 	}

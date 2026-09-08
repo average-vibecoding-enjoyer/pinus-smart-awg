@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/amnezia-vpn/amneziawg-go/conn"
-	"github.com/amnezia-vpn/amneziawg-go/tun"
+	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
+	"github.com/amnezia-vpn/amneziawg-go/v3/tun"
 	"github.com/amnezia-vpn/amneziawg-windows/tunnel/winipcfg"
 )
 
@@ -48,16 +48,18 @@ func bindSocketRoute(family winipcfg.AddressFamily, binder conn.BindSocketToInte
 	if luid == *lastLUID && index == *lastIndex {
 		return nil
 	}
-	*lastLUID = luid
-	*lastIndex = index
 	blackhole := blackholeWhenLoop && index == 0
 	if family == windows.AF_INET {
 		log.Printf("Binding v4 socket to interface %d (blackhole=%v)", index, blackhole)
-		return binder.BindSocketToInterface4(index, blackhole)
+		err = binder.BindSocketToInterface4(index, blackhole)
 	} else if family == windows.AF_INET6 {
 		log.Printf("Binding v6 socket to interface %d (blackhole=%v)", index, blackhole)
-		return binder.BindSocketToInterface6(index, blackhole)
+		err = binder.BindSocketToInterface6(index, blackhole)
 	}
+	if err != nil {
+		return err
+	}
+	*lastLUID, *lastIndex = luid, index
 	return nil
 }
 
@@ -115,24 +117,45 @@ func monitorDefaultRoutes(family winipcfg.AddressFamily, binder conn.BindSocketT
 
 	firstBurst := time.Time{}
 	burstMutex := sync.Mutex{}
-	burstTimer := time.AfterFunc(time.Hour*200, func() {
+	closed := false
+	attempts := 0
+	var burstTimer *time.Timer
+	runAndRetry := func() {
+		if err := doIt(); err != nil {
+			log.Printf("Default route binding failed (family %d): %v", family, err)
+			if attempts < 5 {
+				attempts++
+			}
+			burstTimer.Reset(time.Second * time.Duration(1<<attempts))
+		} else {
+			attempts = 0
+		}
+	}
+	burstTimer = time.AfterFunc(200*time.Hour, func() {
 		burstMutex.Lock()
+		defer burstMutex.Unlock()
+		if closed {
+			return
+		}
 		firstBurst = time.Time{}
-		doIt()
-		burstMutex.Unlock()
+		runAndRetry()
 	})
 	burstTimer.Stop()
+	cleanup := &routeMonitorCleanup{close: func() { burstMutex.Lock(); closed = true; burstTimer.Stop(); burstMutex.Unlock() }}
 	bump := func() {
 		burstMutex.Lock()
-		burstTimer.Reset(time.Millisecond * 150)
+		defer burstMutex.Unlock()
+		if closed {
+			return
+		}
+		burstTimer.Reset(150 * time.Millisecond)
 		if firstBurst.IsZero() {
 			firstBurst = time.Now()
-		} else if time.Since(firstBurst) > time.Second*2 {
+		} else if time.Since(firstBurst) > 2*time.Second {
 			firstBurst = time.Time{}
 			burstTimer.Stop()
-			doIt()
+			runAndRetry()
 		}
-		burstMutex.Unlock()
 	}
 
 	cbr, err := winipcfg.RegisterRouteChangeCallback(func(notificationType winipcfg.MibNotificationType, route *winipcfg.MibIPforwardRow2) {
@@ -141,6 +164,7 @@ func monitorDefaultRoutes(family winipcfg.AddressFamily, binder conn.BindSocketT
 		}
 	})
 	if err != nil {
+		cleanup.Unregister()
 		return nil, err
 	}
 	cbi, err := winipcfg.RegisterInterfaceChangeCallback(func(notificationType winipcfg.MibNotificationType, iface *winipcfg.MibIPInterfaceRow) {
@@ -149,8 +173,16 @@ func monitorDefaultRoutes(family winipcfg.AddressFamily, binder conn.BindSocketT
 		}
 	})
 	if err != nil {
+		cleanup.Unregister()
 		cbr.Unregister()
 		return nil, err
 	}
-	return []winipcfg.ChangeCallback{cbr, cbi}, nil
+	return []winipcfg.ChangeCallback{cleanup, cbr, cbi}, nil
 }
+
+type routeMonitorCleanup struct {
+	once  sync.Once
+	close func()
+}
+
+func (cleanup *routeMonitorCleanup) Unregister() error { cleanup.once.Do(cleanup.close); return nil }

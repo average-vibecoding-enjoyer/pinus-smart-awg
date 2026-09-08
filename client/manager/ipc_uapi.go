@@ -11,7 +11,7 @@ import (
 
 	"golang.org/x/sys/windows"
 
-	"github.com/amnezia-vpn/amneziawg-go/ipc/namedpipe"
+	"github.com/amnezia-vpn/amneziawg-go/v3/ipc/namedpipe"
 	"github.com/amnezia-vpn/amneziawg-windows/services"
 )
 

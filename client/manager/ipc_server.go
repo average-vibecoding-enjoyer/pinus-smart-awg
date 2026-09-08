@@ -23,6 +23,7 @@ import (
 	"github.com/amnezia-vpn/amneziawg-windows-client/updater"
 	"github.com/amnezia-vpn/amneziawg-windows/conf"
 	"github.com/amnezia-vpn/amneziawg-windows/services"
+	"github.com/amnezia-vpn/amneziawg-windows/tunnel/firewall"
 )
 
 var (
@@ -35,6 +36,8 @@ var (
 type ManagerService struct {
 	events        *os.File
 	eventLock     sync.Mutex
+	eventQueue    chan []byte
+	eventDone     chan struct{}
 	elevatedToken windows.Token
 }
 
@@ -88,6 +91,14 @@ func (s *ManagerService) RuntimeConfig(tunnelName string) (*conf.Config, error) 
 }
 
 func (s *ManagerService) Start(tunnelName string) error {
+	smartLifecycleLock.Lock()
+	defer smartLifecycleLock.Unlock()
+	return s.startNativeUnlocked(tunnelName)
+}
+func (s *ManagerService) startNativeUnlocked(tunnelName string) error {
+	if err := previewConnectionPreflight(); err != nil {
+		return err
+	}
 	c, err := conf.LoadFromName(tunnelName)
 	if err != nil {
 		return err
@@ -114,6 +125,32 @@ func (s *ManagerService) Start(tunnelName string) error {
 		func() error { return InstallTunnel(path) },
 	)
 	if switchErr != nil {
+		// Restore only predecessors known to have been active, never the failed
+		// target. Native lifecycle ownership is still held here.
+		for _, name := range plan.stop {
+			if states[name] != TunnelStarted && states[name] != TunnelStarting {
+				continue
+			}
+			state, stateErr := s.State(name)
+			if stateErr != nil {
+				switchErr = errors.Join(switchErr, stateErr)
+				continue
+			}
+			if state != TunnelStopped {
+				continue
+			}
+			prior, restoreErr := conf.LoadFromName(name)
+			if restoreErr == nil {
+				var priorPath string
+				priorPath, restoreErr = prior.Path()
+				if restoreErr == nil {
+					restoreErr = InstallTunnel(priorPath)
+				}
+			}
+			if restoreErr != nil {
+				switchErr = errors.Join(switchErr, fmt.Errorf("restore %s: %w", name, restoreErr))
+			}
+		}
 		return switchErr
 	}
 	if err := clearSmartDesired(); err != nil {
@@ -124,11 +161,22 @@ func (s *ManagerService) Start(tunnelName string) error {
 }
 
 func (s *ManagerService) Stop(tunnelName string) error {
+	smartLifecycleLock.Lock()
+	defer smartLifecycleLock.Unlock()
+	before, exists, _ := loadSmartDesired()
+	_, wasSmart := smartStateForTunnel(tunnelName)
+	clearProtection := wasSmart || (exists && before.TunnelName == tunnelName)
 	desiredErr := clearSmartDesiredForTunnel(tunnelName)
 	var smartErr error
-	_, smartErr = smartStopTunnel(tunnelName)
+	if _, matches := smartStateForTunnel(tunnelName); matches {
+		smartErr = smartStopUnlocked()
+	}
 	nativeErr := s.stopNativeTunnel(tunnelName)
-	return errors.Join(desiredErr, smartErr, nativeErr)
+	var guardErr error
+	if clearProtection {
+		guardErr = firewall.ClearPreviewGuard()
+	}
+	return errors.Join(desiredErr, smartErr, nativeErr, guardErr)
 }
 
 func (s *ManagerService) WaitForStop(tunnelName string) error {
@@ -182,12 +230,15 @@ func (s *ManagerService) State(tunnelName string) (TunnelState, error) {
 	}
 	service, err := m.OpenService(serviceName)
 	if err != nil {
-		return TunnelStopped, nil
+		if errors.Is(err, windows.ERROR_SERVICE_DOES_NOT_EXIST) {
+			return TunnelStopped, nil
+		}
+		return TunnelUnknown, err
 	}
 	defer service.Close()
 	status, err := service.Query()
 	if err != nil {
-		return TunnelUnknown, nil
+		return TunnelUnknown, err
 	}
 	switch status.State {
 	case svc.Stopped:
@@ -244,6 +295,18 @@ func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err err
 		return true, nil
 	}
 
+	defer func() {
+		if err != nil {
+			atomic.StoreUint32(&haveQuit, 0)
+		}
+	}()
+	var names []string
+	if stopTunnelsOnQuit {
+		names, err = conf.ListConfigNames()
+		if err != nil {
+			return false, err
+		}
+	}
 	// Work around potential race condition of delivering messages to the wrong process by removing from notifications.
 	managerServicesLock.Lock()
 	s.eventLock.Lock()
@@ -254,10 +317,6 @@ func (s *ManagerService) Quit(stopTunnelsOnQuit bool) (alreadyQuit bool, err err
 
 	if stopTunnelsOnQuit {
 		_ = smartStop()
-		names, err := conf.ListConfigNames()
-		if err != nil {
-			return false, err
-		}
 		for _, name := range names {
 			UninstallTunnel(name)
 		}
@@ -275,16 +334,7 @@ func (s *ManagerService) Update() {
 	if s.elevatedToken == 0 {
 		return
 	}
-	progress := updater.DownloadVerifyAndExecute(uintptr(s.elevatedToken))
-	go func() {
-		for {
-			dp := <-progress
-			IPCServerNotifyUpdateProgress(dp)
-			if dp.Complete || dp.Error != nil {
-				return
-			}
-		}
-	}()
+	IPCServerNotifyUpdateProgress(updater.DownloadProgress{Error: errors.New("Pinus Preview обновляется отдельным проверенным пакетом")})
 }
 
 func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
@@ -465,6 +515,16 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 			if err != nil {
 				return
 			}
+		case ConnectionSnapshotMethodType:
+			result, retErr := s.ConnectionSnapshot()
+			if encoder.Encode(result) != nil || encoder.Encode(errToString(retErr)) != nil {
+				return
+			}
+		case ProbeConnectionMethodType:
+			result, retErr := s.ProbeConnection()
+			if encoder.Encode(result) != nil || encoder.Encode(errToString(retErr)) != nil {
+				return
+			}
 		case SmartStopMethodType:
 			retErr := s.SmartStop()
 			err = encoder.Encode(errToString(retErr))
@@ -479,7 +539,8 @@ func (s *ManagerService) ServeConn(reader io.Reader, writer io.Writer) {
 
 func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Token) {
 	service := &ManagerService{
-		events:        events,
+		events:     events,
+		eventQueue: make(chan []byte, 64), eventDone: make(chan struct{}),
 		elevatedToken: elevatedToken,
 	}
 
@@ -487,7 +548,9 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Toke
 		managerServicesLock.Lock()
 		managerServices[service] = true
 		managerServicesLock.Unlock()
+		go service.pumpEvents()
 		service.ServeConn(reader, writer)
+		close(service.eventDone)
 		managerServicesLock.Lock()
 		service.eventLock.Lock()
 		service.events = nil
@@ -497,10 +560,11 @@ func IPCServerListen(reader, writer, events *os.File, elevatedToken windows.Toke
 	}()
 }
 
+var notificationOrder sync.Mutex
+
 func notifyAll(notificationType NotificationType, adminOnly bool, ifaces ...any) {
-	if len(managerServices) == 0 {
-		return
-	}
+	notificationOrder.Lock()
+	defer notificationOrder.Unlock()
 
 	var buf bytes.Buffer
 	encoder := gob.NewEncoder(&buf)
@@ -520,14 +584,7 @@ func notifyAll(notificationType NotificationType, adminOnly bool, ifaces ...any)
 		if m.elevatedToken == 0 && adminOnly {
 			continue
 		}
-		go func(m *ManagerService) {
-			m.eventLock.Lock()
-			defer m.eventLock.Unlock()
-			if m.events != nil {
-				m.events.SetWriteDeadline(time.Now().Add(time.Second))
-				m.events.Write(buf.Bytes())
-			}
-		}(m)
+		queueLatestEvent(m.eventQueue, buf.Bytes())
 	}
 	managerServicesLock.RUnlock()
 }

@@ -20,7 +20,7 @@ import (
 // builder. The default keeps local amd64 development builds usable.
 var EngineSHA256 = "C2D3185CF2753427D996FEF40A5CAB0644AA7F63EB037E55F7A2EF8B79EE3533"
 
-const TunInterfaceName = "pinus-smart-next"
+const TunInterfaceName = "pinus-smart-preview"
 
 var tunAddresses = []string{
 	"172.19.77.1/30",
@@ -29,13 +29,13 @@ var tunAddresses = []string{
 
 func programDataDir() string {
 	if root := os.Getenv("ProgramData"); root != "" {
-		return filepath.Join(root, "PinusSmartAWGNext")
+		return filepath.Join(root, "PinusSmartAWGPreview")
 	}
 	dir, err := os.UserConfigDir()
 	if err != nil || dir == "" {
-		return filepath.Join(os.TempDir(), "PinusSmartAWGNext")
+		return filepath.Join(os.TempDir(), "PinusSmartAWGPreview")
 	}
-	return filepath.Join(dir, "PinusSmartAWGNext")
+	return filepath.Join(dir, "PinusSmartAWGPreview")
 }
 
 func WorkDir() string {
@@ -60,9 +60,9 @@ func EnsureWorkDir() (string, error) {
 func UserSettingsDir() string {
 	dir, err := os.UserConfigDir()
 	if err != nil || dir == "" {
-		return filepath.Join(os.TempDir(), "PinusSmartAWGNext")
+		return filepath.Join(os.TempDir(), "PinusSmartAWGPreview")
 	}
-	return filepath.Join(dir, "PinusSmartAWGNext")
+	return filepath.Join(dir, "PinusSmartAWGPreview")
 }
 
 func VerifyEngine(path string) error {
@@ -145,6 +145,9 @@ func addIPackets(target map[string]any, values map[string]string) {
 }
 
 func awgEndpoint(config *conf.Config) (map[string]any, error) {
+	if err := config.ValidateAWG(); err != nil {
+		return nil, err
+	}
 	if len(config.Interface.Addresses) == 0 {
 		return nil, errors.New("smart mode requires at least one interface address")
 	}
@@ -166,7 +169,7 @@ func awgEndpoint(config *conf.Config) (map[string]any, error) {
 			"port":                          int(peer.Endpoint.Port),
 			"public_key":                    peer.PublicKey.String(),
 			"allowed_ips":                   allowedIPs,
-			"persistent_keepalive_interval": int(peer.PersistentKeepalive),
+			"persistent_keepalive_interval": peer.PersistentKeepalive,
 		}
 		if !peer.PresharedKey.IsZero() {
 			peerObject["preshared_key"] = peer.PresharedKey.String()
@@ -194,6 +197,23 @@ func awgEndpoint(config *conf.Config) (map[string]any, error) {
 	addString(endpoint, "h2", config.Interface.ResponsePacketMagicHeader)
 	addString(endpoint, "h3", config.Interface.UnderloadPacketMagicHeader)
 	addString(endpoint, "h4", config.Interface.TransportPacketMagicHeader)
+	if !config.Interface.HeaderProtectionKey.IsZero() {
+		endpoint["header_protection_key"] = config.Interface.HeaderProtectionKey.String()
+	}
+	addString(endpoint, "content_padding_addition", config.Interface.ContentPaddingAddition)
+	addString(endpoint, "rekey_after_time", config.Interface.RekeyAfterTime)
+	addString(endpoint, "rekey_timeout", config.Interface.RekeyTimeout)
+	addString(endpoint, "reject_after_time", config.Interface.RejectAfterTime)
+	addString(endpoint, "keepalive_timeout", config.Interface.KeepaliveTimeout)
+	addString(endpoint, "max_handshake_attempts", config.Interface.MaxHandshakeAttempts)
+	if config.Interface.RandomTrailers != "" {
+		value, _ := conf.ParseAWGBool(config.Interface.RandomTrailers)
+		endpoint["random_trailers"] = value
+	}
+	if config.Interface.DisableCookies != "" {
+		value, _ := conf.ParseAWGBool(config.Interface.DisableCookies)
+		endpoint["disable_cookies"] = value
+	}
 	addIPackets(endpoint, config.Interface.IPackets)
 	return endpoint, nil
 }
@@ -340,7 +360,7 @@ func serviceRuleObjects(settings RoutingSettings, outbound string) []map[string]
 	processSet := make(map[string]bool)
 	domainSet := make(map[string]bool)
 	suffixSet := make(map[string]bool)
-	for _, service := range selectedServices(settings.SelectedApps) {
+	for _, service := range settings.SelectedServices() {
 		for _, process := range service.ProcessNames {
 			if !processSet[process] {
 				processSet[process] = true
@@ -397,15 +417,22 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 	if !families.ipv4 && !families.ipv6 {
 		return nil, errors.New("smart mode requires an IPv4 or IPv6 default AllowedIPs route with a matching interface address")
 	}
-	// Keep DNS inside the encrypted tunnel in every split-routing mode. Domain
-	// rules still decide where the resolved connection goes, while resolution
-	// itself cannot be poisoned or delayed by the local network.
+	// Default DNS remains inside AWG. Explicit direct-domain exceptions use
+	// the physical interface's resolver so local CDNs receive a local answer.
 	servers := dnsServers(config, "awg-out", families)
 	finalDNS := "cloudflare"
 	if tag, ok := servers[0]["tag"].(string); ok {
 		finalDNS = tag
 	}
 
+	dnsRules := policyDNSRules(settings, finalDNS, families.dnsStrategy())
+	needsDirectDNS := false
+	for _, rule := range dnsRules {
+		needsDirectDNS = needsDirectDNS || rule["server"] == "direct-dns"
+	}
+	if needsDirectDNS {
+		servers = append(servers, map[string]any{"type": "local", "tag": "direct-dns", "detour": "direct", "prefer_go": true})
+	}
 	rules := []map[string]any{
 		{
 			"action":  "sniff",
@@ -415,17 +442,14 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 			"protocol": "dns",
 			"action":   "hijack-dns",
 		},
-		{
-			"ip_cidr":  localCIDRs,
-			"action":   "route",
-			"outbound": "direct",
-		},
 	}
 	for _, rule := range settings.CustomRules {
 		if rule.Enabled {
 			rules = append(rules, customRuleObject(rule))
 		}
 	}
+	rules = append(rules, regionalRuleObjects(settings)...)
+	rules = append(rules, map[string]any{"ip_cidr": localCIDRs, "action": "route", "outbound": "direct"})
 	finalOutbound := "awg-out"
 	if settings.Mode == ModeSelected {
 		rules = append(rules, serviceRuleObjects(settings, "awg-out")...)
@@ -453,11 +477,13 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 			"timestamp": true,
 		},
 		"dns": map[string]any{
-			"servers":         servers,
-			"final":           finalDNS,
-			"strategy":        families.dnsStrategy(),
-			"reverse_mapping": true,
-			"cache_capacity":  4096,
+			"servers":           servers,
+			"rules":             dnsRules,
+			"independent_cache": true,
+			"final":             finalDNS,
+			"strategy":          families.dnsStrategy(),
+			"reverse_mapping":   true,
+			"cache_capacity":    4096,
 		},
 		"endpoints": []any{endpoint},
 		"inbounds": []any{

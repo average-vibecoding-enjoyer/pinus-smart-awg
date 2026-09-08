@@ -19,7 +19,7 @@ import (
 
 const (
 	smartDesiredVersion = 1
-	smartDesiredMaxSize = 256 * 1024
+	smartDesiredMaxSize = 2 * smart.MaxSettingsSize
 )
 
 type smartDesiredState struct {

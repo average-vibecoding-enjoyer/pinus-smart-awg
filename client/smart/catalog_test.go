@@ -84,8 +84,8 @@ func TestAIServiceBuildsProcessAndDomainRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	rules := routeRules(t, decodeRoute(t, data))
-	processRule := findRule(t, rules, "process_name")
-	domainRule := findRule(t, rules, "domain")
+	processRule := findRuleContaining(t, rules, "process_name", "ChatGPT.exe")
+	domainRule := findRuleContaining(t, rules, "domain", "chatgpt.com")
 	processes, _ := processRule["process_name"].([]any)
 	domains, _ := domainRule["domain"].([]any)
 	if !anyString(processes, "ChatGPT.exe") {

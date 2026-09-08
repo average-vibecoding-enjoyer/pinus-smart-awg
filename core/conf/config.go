@@ -67,7 +67,16 @@ type Interface struct {
 	UnderloadPacketMagicHeader string
 	TransportPacketMagicHeader string
 
-	IPackets map[string]string
+	HeaderProtectionKey    Key
+	ContentPaddingAddition string
+	RekeyAfterTime         string
+	RekeyTimeout           string
+	RejectAfterTime        string
+	KeepaliveTimeout       string
+	MaxHandshakeAttempts   string
+	RandomTrailers         string
+	DisableCookies         string
+	IPackets               map[string]string
 }
 
 type Peer struct {
@@ -75,7 +84,7 @@ type Peer struct {
 	PresharedKey        Key
 	AllowedIPs          []IPCidr
 	Endpoint            Endpoint
-	PersistentKeepalive uint16
+	PersistentKeepalive string
 
 	RxBytes           Bytes
 	TxBytes           Bytes
@@ -146,7 +155,7 @@ func (conf *Config) IntersectsWith(other *Config) bool {
 }
 
 func (e *Endpoint) String() string {
-	if strings.IndexByte(e.Host, ':') > 0 {
+	if strings.IndexByte(e.Host, ':') >= 0 {
 		return fmt.Sprintf("[%s]:%d", e.Host, e.Port)
 	}
 	return fmt.Sprintf("%s:%d", e.Host, e.Port)
@@ -279,7 +288,8 @@ func (conf *Config) DeduplicateNetworkEntries() {
 	}
 	conf.Interface.DNS = conf.Interface.DNS[:i]
 
-	for _, peer := range conf.Peers {
+	for peerIndex := range conf.Peers {
+		peer := &conf.Peers[peerIndex]
 		m = make(map[string]bool, len(peer.AllowedIPs))
 		i = 0
 		for _, addr := range peer.AllowedIPs {
@@ -297,6 +307,7 @@ func (conf *Config) DeduplicateNetworkEntries() {
 
 func (conf *Config) Redact() {
 	conf.Interface.PrivateKey = Key{}
+	conf.Interface.HeaderProtectionKey = Key{}
 	for i := range conf.Peers {
 		conf.Peers[i].PublicKey = Key{}
 		conf.Peers[i].PresharedKey = Key{}

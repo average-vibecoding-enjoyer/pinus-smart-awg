@@ -4,13 +4,20 @@ param()
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $patterns = [ordered]@{
-    "VPN private key"     = '(?m)^\s*(?:PrivateKey|PresharedKey)\s*=\s*[A-Za-z0-9+/]{40,}={0,2}\s*$'
+    "VPN private key"     = '(?m)^\s*(?:PrivateKey|PresharedKey|HeaderProtectionKey)\s*=\s*[A-Za-z0-9+/]{40,}={0,2}\s*$'
     "Telegram bot token" = '\b[0-9]{8,12}:[A-Za-z0-9_-]{30,}\b'
     "Paylee API key"      = '\bmk_[A-Za-z0-9]{20,}\b'
     "Webhook secret"     = '\bwhsec_[A-Za-z0-9]{20,}\b'
     "PEM private key"     = '-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----'
 }
 $allowedTestFixtures = @{
+    "core/conf/awg31_test.go" = @(
+        "PrivateKey = AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=",
+        "HeaderProtectionKey = AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+    )
+    "client/smart/awg31_test.go" = @(
+        "HeaderProtectionKey = AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI="
+    )
     "client/smart/settings_test.go" = @(
         "PrivateKey = yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk="
     )

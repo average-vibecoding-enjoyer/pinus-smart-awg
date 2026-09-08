@@ -15,9 +15,7 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-//
 // Known addresses.
-//
 var (
 	linkLocal = wtFwpV6AddrAndMask{[16]uint8{0xfe, 0x80}, 10}
 
@@ -62,7 +60,7 @@ func permitTunInterface(session uintptr, baseObjects *baseObjects, weight uint8,
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -80,7 +78,7 @@ func permitTunInterface(session uintptr, baseObjects *baseObjects, weight uint8,
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -98,7 +96,7 @@ func permitTunInterface(session uintptr, baseObjects *baseObjects, weight uint8,
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -116,7 +114,7 @@ func permitTunInterface(session uintptr, baseObjects *baseObjects, weight uint8,
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -126,12 +124,25 @@ func permitTunInterface(session uintptr, baseObjects *baseObjects, weight uint8,
 }
 
 func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight uint8) error {
+	return permitExecutable(session, baseObjects, weight, "")
+}
+func permitExecutable(session uintptr, baseObjects *baseObjects, weight uint8, path string) error {
 	var conditions [2]wtFwpmFilterCondition0
 
 	//
 	// First condition is the exe path of the current process.
 	//
-	appID, err := getCurrentProcessAppID()
+	var appID *wtFwpByteBlob
+	var err error
+	if path == "" {
+		appID, err = getCurrentProcessAppID()
+	} else {
+		var pathPtr *uint16
+		pathPtr, err = windows.UTF16PtrFromString(path)
+		if err == nil {
+			err = fwpmGetAppIdFromFileName0(pathPtr, unsafe.Pointer(&appID))
+		}
+	}
 	if err != nil {
 		return wrapErr(err)
 	}
@@ -150,7 +161,12 @@ func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight ui
 	// Second condition is the SECURITY_DESCRIPTOR of the current process.
 	// This prevents other processes hosted in the same exe from matching this filter.
 	//
-	sd, err := getCurrentProcessSecurityDescriptor()
+	var sd *windows.SECURITY_DESCRIPTOR
+	if baseObjects.provider == previewGuardProvider {
+		sd, err = windows.SecurityDescriptorFromString("D:(A;;CC;;;SY)")
+	} else {
+		sd, err = getCurrentProcessSecurityDescriptor()
+	}
 	if err != nil {
 		return wrapErr(err)
 	}
@@ -193,7 +209,7 @@ func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight ui
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -211,7 +227,7 @@ func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight ui
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -229,7 +245,7 @@ func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight ui
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -247,7 +263,7 @@ func permitWireGuardService(session uintptr, baseObjects *baseObjects, weight ui
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -291,7 +307,7 @@ func permitLoopback(session uintptr, baseObjects *baseObjects, weight uint8) err
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -309,7 +325,7 @@ func permitLoopback(session uintptr, baseObjects *baseObjects, weight uint8) err
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -327,7 +343,7 @@ func permitLoopback(session uintptr, baseObjects *baseObjects, weight uint8) err
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -345,7 +361,7 @@ func permitLoopback(session uintptr, baseObjects *baseObjects, weight uint8) err
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -401,7 +417,7 @@ func permitDHCPIPv4(session uintptr, baseObjects *baseObjects, weight uint8) err
 
 		filterID := uint64(0)
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -448,7 +464,7 @@ func permitDHCPIPv4(session uintptr, baseObjects *baseObjects, weight uint8) err
 
 		filterID := uint64(0)
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -515,7 +531,7 @@ func permitDHCPIPv6(session uintptr, baseObjects *baseObjects, weight uint8) err
 
 		filterID := uint64(0)
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -572,7 +588,7 @@ func permitDHCPIPv6(session uintptr, baseObjects *baseObjects, weight uint8) err
 
 		filterID := uint64(0)
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -813,7 +829,7 @@ func permitNdp(session uintptr, baseObjects *baseObjects, weight uint8) error {
 		filter.numFilterConditions = uint32(len(definition.conditions))
 		filter.filterCondition = (*wtFwpmFilterCondition0)(unsafe.Pointer(&definition.conditions[0]))
 
-		err := fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err := guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -869,7 +885,7 @@ func permitHyperV(session uintptr, baseObjects *baseObjects, weight uint8) error
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_OUTBOUND_MAC_FRAME_NATIVE
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -887,7 +903,7 @@ func permitHyperV(session uintptr, baseObjects *baseObjects, weight uint8) error
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_INBOUND_MAC_FRAME_NATIVE
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -921,7 +937,7 @@ func blockAll(session uintptr, baseObjects *baseObjects, weight uint8) error {
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -939,7 +955,7 @@ func blockAll(session uintptr, baseObjects *baseObjects, weight uint8) error {
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -957,7 +973,7 @@ func blockAll(session uintptr, baseObjects *baseObjects, weight uint8) error {
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -975,7 +991,7 @@ func blockAll(session uintptr, baseObjects *baseObjects, weight uint8) error {
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -1043,7 +1059,7 @@ func blockDNS(except []net.IP, session uintptr, baseObjects *baseObjects, weight
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -1061,7 +1077,7 @@ func blockDNS(except []net.IP, session uintptr, baseObjects *baseObjects, weight
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -1079,7 +1095,7 @@ func blockDNS(except []net.IP, session uintptr, baseObjects *baseObjects, weight
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -1097,7 +1113,7 @@ func blockDNS(except []net.IP, session uintptr, baseObjects *baseObjects, weight
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -1165,7 +1181,7 @@ func blockDNS(except []net.IP, session uintptr, baseObjects *baseObjects, weight
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -1183,7 +1199,7 @@ func blockDNS(except []net.IP, session uintptr, baseObjects *baseObjects, weight
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -1204,7 +1220,7 @@ func blockDNS(except []net.IP, session uintptr, baseObjects *baseObjects, weight
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_CONNECT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}
@@ -1222,7 +1238,7 @@ func blockDNS(except []net.IP, session uintptr, baseObjects *baseObjects, weight
 		filter.displayData = *displayData
 		filter.layerKey = cFWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6
 
-		err = fwpmFilterAdd0(session, &filter, 0, &filterID)
+		err = guardFilterAdd(session, &filter, 0, &filterID)
 		if err != nil {
 			return wrapErr(err)
 		}

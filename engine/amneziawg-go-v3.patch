@@ -1,0 +1,89 @@
+--- a/device/obf_datasize.go
++++ b/device/obf_datasize.go
+@@ -1,9 +1,10 @@
+ package device
+ 
+-import "strconv"
++import ("strconv"; "errors")
+ 
+ func newDataSizeObf(val string) (obf, error) {
+ 	length, err := strconv.Atoi(val)
++ if err == nil && (length < 0 || length > 65507) { return nil, errors.New("CPS length is out of bounds") }
+ 	if err != nil {
+ 		return nil, err
+ 	}
+--- a/device/obf_rand.go
++++ b/device/obf_rand.go
+@@ -3,10 +3,12 @@
+ import (
+ 	"crypto/rand"
+ 	"strconv"
++ "errors"
+ )
+ 
+ func newRandObf(val string) (obf, error) {
+ 	length, err := strconv.Atoi(val)
++ if err == nil && (length < 0 || length > 65507) { return nil, errors.New("CPS length is out of bounds") }
+ 	if err != nil {
+ 		return nil, err
+ 	}
+--- a/device/obf_randchars.go
++++ b/device/obf_randchars.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"crypto/rand"
+ 	"strconv"
++ "errors"
+ 	"unicode"
+ )
+ 
+@@ -10,6 +11,7 @@
+ 
+ func newRandCharObf(val string) (obf, error) {
+ 	length, err := strconv.Atoi(val)
++ if err == nil && (length < 0 || length > 65507) { return nil, errors.New("CPS length is out of bounds") }
+ 	if err != nil {
+ 		return nil, err
+ 	}
+--- a/device/obf_randdigits.go
++++ b/device/obf_randdigits.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"crypto/rand"
+ 	"strconv"
++ "errors"
+ 	"unicode"
+ )
+ 
+@@ -10,6 +11,7 @@
+ 
+ func newRandDigitsObf(val string) (obf, error) {
+ 	length, err := strconv.Atoi(val)
++ if err == nil && (length < 0 || length > 65507) { return nil, errors.New("CPS length is out of bounds") }
+ 	if err != nil {
+ 		return nil, err
+ 	}
+--- a/device/send.go
++++ b/device/send.go
+@@ -333,6 +333,21 @@
+ 
+ 		// read packets
+ 		count, readErr = device.tun.device.Read(bufs, sizes, offset)
++		// IpcSet can set S4 while the first TUN Read is already blocked.
++		// Move each returned packet to the current headroom before encryption.
++		// Otherwise the first payload is emitted with the old padding and lost.
++		currentPadding := device.paddings.transport.Load()
++		currentOffset := MessageTransportHeaderSize + int(currentPadding)
++		for i := 0; i < count; i++ {
++			if sizes[i] < 0 || offset+sizes[i] > len(bufs[i]) || currentOffset+sizes[i] > len(bufs[i]) {
++				sizes[i] = 0
++				continue
++			}
++			if currentOffset != offset {
++				copy(bufs[i][currentOffset:currentOffset+sizes[i]], bufs[i][offset:offset+sizes[i]])
++			}
++		}
++		padding, offset = currentPadding, currentOffset
+ 		for i := 0; i < count; i++ {
+ 			if sizes[i] < 1 {
+ 				continue

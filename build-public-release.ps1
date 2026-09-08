@@ -1,6 +1,6 @@
 param(
     [ValidateSet("amd64", "arm64", "386")]
-    [string[]]$Architectures = @("amd64", "arm64", "386"),
+    [string[]]$Architectures = @("amd64"),
     [switch]$SkipInstallers
 )
 
@@ -13,16 +13,16 @@ $Core = Join-Path $Root "core"
 $Cache = Join-Path $Root ".cache"
 $Build = Join-Path $Root ".build"
 $Release = Join-Path $Root "release"
-$GoVersion = "1.26.5"
+$GoVersion = "1.26.6"
 $GoURL = "https://go.dev/dl/go$GoVersion.windows-amd64.zip"
-$GoArchiveSHA256 = "97E6B2A833B6D89F9FF17D25419AC0A7E3B482A044E9AB18CDEF834BD834FD38"
+$GoArchiveSHA256 = "5B6C5B556525810463B5C897B50DC7A82D6A3DC0BFAF55D990A7E9F31D6B2318"
 $EngineRepository = "https://github.com/hoaxisr/amnezia-box.git"
 $EngineTag = "v1.13.13-awg2.1"
 $EngineCommit = "f40548f91a14582975096d0310e3c6afd44656f8"
-$EngineTags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_acme,with_clash_api,with_awg"
+$EngineTags = "with_gvisor,with_quic,with_wireguard,with_awg"
 $EnginePatch = Join-Path $Root "engine\amnezia-box-security.patch"
-$EnginePatchSHA256 = "C4974F58E7598062C50842557F26F979AEFB74C35BE1A142E743D862CB1A6A3F"
-$EnginePatchedGoSumSHA256 = "4E8BC0FAB40415381BD1E679B7B6C6DD7E2284B13F3F9EE26712ADD8BF8E60A4"
+$EnginePatchSHA256 = "620F26852D2E88EC090FF89406C7154861E9A037E64893ED312B8C98D99AE503"
+$EnginePatchedGoSumSHA256 = "192868C95C8223D5CB6BB93A26E447FEE1E44E40DBFEDB58A066F20CD5AD1D4C"
 $GovulncheckVersion = "v1.6.0"
 $WintunURL = "https://www.wintun.net/builds/wintun-0.14.1.zip"
 $WintunArchiveSHA256 = "07C256185D6EE3652E09FA55C0B673E2624B565E02C4B9091C79CA7D2F24EF51"
@@ -241,6 +241,15 @@ if ($VersionSource -notmatch 'Number\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"') {
 }
 $Version = $Matches[1]
 
+# Safe test defaults; all temporary user data stays inside this checkout.
+$PreviewPreviousAppData = $env:APPDATA
+$PreviewPreviousLocalAppData = $env:LOCALAPPDATA
+$TestData = Join-Path $Root ".verify\userdata"
+New-Item -ItemType Directory -Force -Path $TestData | Out-Null
+$env:APPDATA = $TestData
+$env:LOCALAPPDATA = $TestData
+foreach ($flag in @("CERTIFICATE", "RINGLOGGER_CLI", "CONFIG_STORE", "WINTUN", "WINIPCFG", "NETWORK", "UPDATER")) { [Environment]::SetEnvironmentVariable("PINUS_RUN_${flag}_TESTS", "0", "Process") }
+
 New-Item -ItemType Directory -Force -Path $Cache | Out-Null
 Reset-Directory $Build
 Reset-Directory $Release
@@ -286,12 +295,14 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to apply the amnezia-box security patch."
 }
-Push-Location $EngineSource
-try {
-    Invoke-Go $Go @("mod", "tidy")
-} finally {
-    Pop-Location
+$AwgSource = Join-Path $Root "third_party\amneziawg-go-v3"
+$AwgManifest = Get-Content -Raw -LiteralPath (Join-Path $Root "third_party\AWG3-PIN.json") | ConvertFrom-Json
+foreach ($file in $AwgManifest.files.PSObject.Properties) {
+    if ((Get-SHA256 (Join-Path $AwgSource $file.Name)) -ne $file.Value) { throw "AWG 3.1 source hash mismatch: $($file.Name)" }
 }
+Copy-Item -LiteralPath $AwgSource -Destination (Join-Path $EngineSource "pinus-awg3") -Recurse
+$sumPath = Join-Path $EngineSource "go.sum"
+[IO.File]::WriteAllText($sumPath, [IO.File]::ReadAllText($sumPath).Replace("`r`n", "`n"), [Text.UTF8Encoding]::new($false))
 if ((Get-SHA256 (Join-Path $EngineSource "go.sum")) -ne $EnginePatchedGoSumSHA256) {
     throw "Patched amnezia-box go.sum is not reproducible."
 }
@@ -365,7 +376,6 @@ try {
                 "build",
                 "-trimpath",
                 "-tags", $EngineTags,
-                "-ldflags", "-s -w",
                 "-o", $engine,
                 ".\cmd\sing-box"
             )
@@ -388,7 +398,7 @@ try {
         $wintunHash = Get-SHA256 $wintun
 
         $clientExe = Join-Path $bundleDirectory "PinusSmartAWG.exe"
-        $ldflags = "-H=windowsgui -s -w -X github.com/amnezia-vpn/amneziawg-windows-client/smart.EngineSHA256=$engineHash -X github.com/amnezia-vpn/amneziawg-windows-client/manager.wintunDLLSHA256=$wintunHash"
+        $ldflags = "-H=windowsgui -X github.com/amnezia-vpn/amneziawg-windows-client/smart.EngineSHA256=$engineHash -X github.com/amnezia-vpn/amneziawg-windows-client/manager.wintunDLLSHA256=$wintunHash"
         Push-Location $Client
         try {
             Invoke-Go $Go @("build", "-trimpath", "-buildvcs=false", "-ldflags", $ldflags, "-o", $clientExe, ".")
@@ -406,14 +416,14 @@ try {
         Copy-Item -LiteralPath (Join-Path $WintunRoot "wintun\LICENSE.txt") -Destination (Join-Path $bundleDirectory "WINTUN-LICENSE.txt")
         Copy-Item -LiteralPath (Join-Path $Root "packaging\THIRD-PARTY-NOTICES.txt") -Destination (Join-Path $bundleDirectory "THIRD-PARTY-NOTICES.txt")
 
-        $portableArchive = Join-Path $Release "Pinus-Smart-AWG-$Version-windows-$($info.Label)-portable.zip"
+        $portableArchive = Join-Path $Release "Pinus-Smart-AWG-Preview-$Version-windows-$($info.Label)-portable.zip"
         Compress-Archive -Path (Join-Path $bundleDirectory "*") -DestinationPath $portableArchive -CompressionLevel Optimal
 
         if (-not $SkipInstallers) {
             $wixObjectDirectory = Join-Path $Build "wix\$architecture"
             New-Item -ItemType Directory -Force -Path $wixObjectDirectory | Out-Null
             $wixObject = Join-Path $wixObjectDirectory "pinus-smart-awg.wixobj"
-            $msi = Join-Path $Release "Pinus-Smart-AWG-$Version-windows-$($info.Label).msi"
+            $msi = Join-Path $Release "Pinus-Smart-AWG-Preview-$Version-windows-$($info.Label).msi"
             $candle = Join-Path $WixRoot "candle.exe"
             $light = Join-Path $WixRoot "light.exe"
             & $candle -nologo -arch $info.Wix "-dAppVersion=$Version" "-dPlatform=$($info.Wix)" "-dArchLabel=$($info.Label)" "-dBundleDir=$bundleDirectory" "-dIconPath=$(Join-Path $Client 'ui\icon\pinus-smart-awg.ico')" "-dLicenseRtf=$(Join-Path $Root 'packaging\LICENSE.rtf')" -out $wixObject (Join-Path $Root "installer\pinus-smart-awg.wxs")
@@ -439,7 +449,7 @@ try {
 
     $goVersion = (& $Go version).Trim()
     $manifest = [ordered]@{
-        product = "Pinus Smart AWG"
+        product = "Pinus Smart AWG Preview"
         version = $Version
         generated_utc = [DateTime]::UtcNow.ToString("o")
         go = $goVersion
@@ -472,6 +482,8 @@ try {
     $env:GOARCH = $oldGOARCH
     $env:CGO_ENABLED = $oldCGO
     $env:GOTOOLCHAIN = $oldToolchain
+    $env:APPDATA = $PreviewPreviousAppData
+    $env:LOCALAPPDATA = $PreviewPreviousLocalAppData
 }
 
 Write-Host "Release assets: $Release"

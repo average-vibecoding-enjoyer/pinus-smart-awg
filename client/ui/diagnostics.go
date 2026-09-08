@@ -69,7 +69,7 @@ func (dashboard *Dashboard) runDiagnostics() {
 			report := diagnosticReport{GeneratedAt: time.Now(), Checks: []diagnosticCheck{
 				{"Менеджер", "доступен за 2 ms, состояние 0", diagnosticGood},
 				{"Профили", "активных: 0", diagnosticGood},
-				{"Конфиг", "IPv4, IPv6 закрыт без утечки, DNS-серверов: 1", diagnosticGood},
+				{"Конфиг", "Профиль поддерживает IPv4; поведение IPv6 зависит от применённых правил, DNS-серверов: 1", diagnosticGood},
 				{"DNS endpoint", "сервер задан IP-адресом", diagnosticGood},
 				{"Engine SHA", "проверен: amnezia-box.exe", diagnosticGood},
 				{"Сеть", "активных интерфейсов: 2", diagnosticGood},
@@ -147,7 +147,7 @@ func collectDiagnostics(ctx context.Context, profile manager.Tunnel, settings sm
 		if !support.IPv4 && !support.IPv6 {
 			level = diagnosticFailure
 		}
-		report.Checks = append(report.Checks, diagnosticCheck{"Конфиг", fmt.Sprintf("%s, DNS-серверов: %d", families, len(config.Interface.DNS)), level})
+		report.Checks = append(report.Checks, diagnosticCheck{"Конфиг", fmt.Sprintf("%s · %s, DNS-серверов: %d", config.ProtocolDescription(), families, len(config.Interface.DNS)), level})
 		report.Checks = append(report.Checks, resolveEndpointCheck(ctx, &config))
 	}
 
@@ -164,7 +164,11 @@ func collectDiagnostics(ctx context.Context, profile manager.Tunnel, settings sm
 		report.Checks = append(report.Checks, diagnosticCheck{"Сеть", fmt.Sprintf("активных интерфейсов: %d", physicalCount), diagnosticGood})
 	}
 
-	smartExpected := smart.NormalizeMode(string(settings.Mode)) != smart.ModeAll || smart.HasEnabledCustomRules(settings)
+	snapshot, snapshotErr := manager.IPCClientConnectionSnapshot()
+	smartExpected := snapshotErr == nil && snapshot.Engine == "smart"
+	if snapshotErr != nil {
+		report.Checks = append(report.Checks, diagnosticCheck{"Снимок подключения", "не удалось прочитать применённые настройки", diagnosticWarning})
+	}
 	if managerErr == nil && globalState == manager.TunnelStarted && smartExpected {
 		if iface, err := net.InterfaceByName(smart.TunInterfaceName); err != nil || iface.Flags&net.FlagUp == 0 {
 			detail := "smart TUN не найден"
@@ -200,9 +204,9 @@ func networkSupportText(support smart.ProfileNetworkSupport) string {
 	case support.IPv4 && support.IPv6:
 		return "IPv4 + IPv6"
 	case support.IPv4:
-		return "IPv4, IPv6 закрыт без утечки"
+		return "Профиль поддерживает IPv4; поведение IPv6 зависит от применённых правил"
 	case support.IPv6:
-		return "IPv6, IPv4 закрыт без утечки"
+		return "Профиль поддерживает IPv6; поведение IPv4 зависит от применённых правил"
 	default:
 		return "нет подходящего default route"
 	}
@@ -240,4 +244,15 @@ func physicalInterfaceCount() int {
 		count++
 	}
 	return count
+}
+
+// Sharing exports status codes only. Raw errors may contain keys or endpoints;
+// masking arbitrary free-form text with regex is not a reliable guarantee.
+func (report diagnosticReport) ShareableString() string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "Component checks: %s\r\n", report.GeneratedAt.UTC().Format(time.RFC3339))
+	for _, check := range report.Checks {
+		fmt.Fprintf(&out, "%s: level=%d\r\n", check.Name, check.Level)
+	}
+	return out.String()
 }

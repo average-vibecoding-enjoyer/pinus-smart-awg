@@ -12,7 +12,8 @@ import (
 	"strconv"
 	"unsafe"
 
-	"github.com/amnezia-vpn/amneziawg-go/device"
+	"github.com/amnezia-vpn/amneziawg-go/v3/device"
+	"github.com/amnezia-vpn/amneziawg-windows/conf"
 )
 
 type highlight int
@@ -378,23 +379,13 @@ func (s stringSpan) isValidNetwork() bool {
 	return s.isValidIPv4() || s.isValidIPv6()
 }
 
-func (s stringSpan) isValidHField() bool {
-	for i := 0; i < s.len; i++ {
-		if *s.at(i) == '-' {
-			first := stringSpan{s.s, i}
-			second := stringSpan{s.at(i + 1), s.len - i - 1}
-			if first.isValidUint(false, 0, 2_147_483_647) && second.isValidUint(false, 0, 2_147_483_647) {
-				return true
-			}
-			return false
-		}
-	}
-	return s.isValidUint(false, 0, 2_147_483_647)
+func (s stringSpan) text() string { return string(unsafe.Slice(s.s, s.len)) }
+func (s stringSpan) isValidRange(bits int) bool {
+	_, _, err := conf.ParseAWGRange(s.text(), bits)
+	return err == nil
 }
-
-func (s stringSpan) isValidIField() bool {
-	return s.len != 0
-}
+func (s stringSpan) isValidHField() bool { return s.isValidRange(32) }
+func (s stringSpan) isValidIField() bool { return conf.ValidateCPS(s.text()) == nil }
 
 type field int32
 
@@ -426,6 +417,15 @@ const (
 	fieldI3
 	fieldI4
 	fieldI5
+	fieldHeaderProtectionKey
+	fieldContentPaddingAddition
+	fieldRekeyAfterTime
+	fieldRekeyTimeout
+	fieldRejectAfterTime
+	fieldKeepaliveTimeout
+	fieldMaxHandshakeAttempts
+	fieldRandomTrailers
+	fieldDisableCookies
 	fieldPeerSection
 	fieldPublicKey
 	fieldPresharedKey
@@ -447,6 +447,24 @@ func sectionForField(t field) field {
 
 func (s stringSpan) field() field {
 	switch {
+	case s.isCaselessSame("HeaderProtectionKey"):
+		return fieldHeaderProtectionKey
+	case s.isCaselessSame("ContentPaddingAddition"):
+		return fieldContentPaddingAddition
+	case s.isCaselessSame("RekeyAfterTime"):
+		return fieldRekeyAfterTime
+	case s.isCaselessSame("RekeyTimeout"):
+		return fieldRekeyTimeout
+	case s.isCaselessSame("RejectAfterTime"):
+		return fieldRejectAfterTime
+	case s.isCaselessSame("KeepaliveTimeout"):
+		return fieldKeepaliveTimeout
+	case s.isCaselessSame("MaxHandshakeAttempts"):
+		return fieldMaxHandshakeAttempts
+	case s.isCaselessSame("RandomTrailers"):
+		return fieldRandomTrailers
+	case s.isCaselessSame("DisableCookies"):
+		return fieldDisableCookies
 	case s.isCaselessSame("PrivateKey"):
 		return fieldPrivateKey
 	case s.isCaselessSame("ListenPort"):
@@ -596,6 +614,13 @@ func (hsa *highlightSpanArray) highlightMultivalue(parent, s stringSpan, section
 
 func (hsa *highlightSpanArray) highlightValue(parent, s stringSpan, section field) {
 	switch section {
+	case fieldHeaderProtectionKey:
+		hsa.append(parent.s, s, validateHighlight(s.isValidKey(), highlightPrivateKey))
+	case fieldContentPaddingAddition, fieldRekeyAfterTime, fieldRekeyTimeout, fieldRejectAfterTime, fieldKeepaliveTimeout, fieldMaxHandshakeAttempts:
+		hsa.append(parent.s, s, validateHighlight(s.isValidRange(16), highlightKeepalive))
+	case fieldRandomTrailers, fieldDisableCookies:
+		_, err := conf.ParseAWGBool(s.text())
+		hsa.append(parent.s, s, validateHighlight(err == nil, highlightKeepalive))
 	case fieldPrivateKey:
 		hsa.append(parent.s, s, validateHighlight(s.isValidKey(), highlightPrivateKey))
 	case fieldPublicKey:
@@ -611,7 +636,7 @@ func (hsa *highlightSpanArray) highlightValue(parent, s stringSpan, section fiel
 	case fieldListenPort:
 		hsa.append(parent.s, s, validateHighlight(s.isValidPort(), highlightPort))
 	case fieldPersistentKeepalive:
-		hsa.append(parent.s, s, validateHighlight(s.isValidPersistentKeepAlive(), highlightKeepalive))
+		hsa.append(parent.s, s, validateHighlight(s.isCaselessSame("off") || s.isValidRange(16), highlightKeepalive))
 	case fieldEndpoint:
 		if !s.isValidEndpoint() {
 			hsa.append(parent.s, s, highlightError)

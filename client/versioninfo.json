@@ -1,7 +1,17 @@
 {
   "FixedFileInfo": {
-    "FileVersion": {"Major": 3, "Minor": 2, "Patch": 3, "Build": 0},
-    "ProductVersion": {"Major": 3, "Minor": 2, "Patch": 3, "Build": 0},
+    "FileVersion": {
+      "Major": 3,
+      "Minor": 3,
+      "Patch": 0,
+      "Build": 0
+    },
+    "ProductVersion": {
+      "Major": 3,
+      "Minor": 3,
+      "Patch": 0,
+      "Build": 0
+    },
     "FileFlagsMask": "3f",
     "FileFlags ": "00",
     "FileOS": "040004",
@@ -9,21 +19,24 @@
     "FileSubType": "00"
   },
   "StringFileInfo": {
-    "Comments": "Pinus Smart AWG",
+    "Comments": "Pinus Smart AWG Preview",
     "CompanyName": "Pinus VPN",
-    "FileDescription": "Pinus Smart AWG",
-    "FileVersion": "3.2.3",
+    "FileDescription": "Pinus Smart AWG Preview",
+    "FileVersion": "3.3.0",
     "InternalName": "pinus-smart-awg",
     "LegalCopyright": "Pinus Smart AWG. Based on AmneziaWG, WireGuard, and amnezia-box.",
     "LegalTrademarks": "",
     "OriginalFilename": "PinusSmartAWG.exe",
     "PrivateBuild": "",
-    "ProductName": "Pinus Smart AWG",
-    "ProductVersion": "3.2.3",
-    "SpecialBuild": ""
+    "ProductName": "Pinus Smart AWG Preview",
+    "ProductVersion": "3.3.0",
+    "SpecialBuild": "Isolated Preview; AWG 3.1"
   },
   "VarFileInfo": {
-    "Translation": {"LangID": "0409", "CharsetID": "04B0"}
+    "Translation": {
+      "LangID": "0409",
+      "CharsetID": "04B0"
+    }
   },
   "IconPath": "ui/icon/pinus-smart-awg.ico",
   "ManifestPath": "manifest.xml"

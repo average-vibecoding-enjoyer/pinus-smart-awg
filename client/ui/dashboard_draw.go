@@ -511,6 +511,7 @@ func (dashboard *Dashboard) paintFrame(canvas *walk.Canvas, bounds walk.Rectangl
 	dashboard.disableSmooth()
 	dashboard.queueGDI = false
 	dashboard.flushGDICommands(canvas)
+	dashboard.drawKeyboardFocus(canvas)
 	win.GdiFlush()
 	return nil
 }
@@ -603,6 +604,7 @@ func (dashboard *Dashboard) drawSidebar(canvas *walk.Canvas, bounds walk.Rectang
 		itemY += dashboard.px(52)
 	}
 
+	dashboard.drawButton(canvas, "nav:tools", "Управление", "\ue713", walk.Rectangle{X: dashboard.px(10), Y: itemY + dashboard.px(6), Width: bounds.Width - dashboard.px(20), Height: dashboard.px(42)}, false, dashboard.operationBusy())
 	diagnosticBounds := walk.Rectangle{X: dashboard.px(10), Y: bounds.Y + bounds.Height - dashboard.px(62), Width: bounds.Width - dashboard.px(20), Height: dashboard.px(44)}
 	selected := dashboard.page == pageDiagnostics
 	if selected || dashboard.hoverID == "nav:diagnostics" {
@@ -642,9 +644,9 @@ func stateCopy(state manager.TunnelState, busy bool) (string, string, walk.Color
 		return "Подключаем VPN", "Проверяем профиль и поднимаем маршруты", walk.RGB(54, 169, 255)
 	}
 	if state == manager.TunnelStarted {
-		return "VPN подключён", "Трафик идёт по выбранным правилам", walk.RGB(46, 210, 139)
+		return "Туннель включён", "Доступность интернета можно проверить в Управлении", walk.RGB(46, 210, 139)
 	}
-	return "VPN отключён", "Трафик использует обычное подключение", walk.RGB(158, 181, 205)
+	return "VPN отключён", "При активной защите интернет может оставаться заблокированным", walk.RGB(158, 181, 205)
 }
 
 func modeCopy(mode smart.Mode) (string, string) {
@@ -660,12 +662,12 @@ func serviceSectionCopy(mode smart.Mode) (string, string) {
 	if serviceSelectionEnabled(mode) {
 		return "Сервисы через VPN", "Остальной трафик будет идти напрямую"
 	}
-	return "Сервисы", "Не применяются в режиме «Весь интернет»"
+	return "Сервисы", "Включено — VPN · Выключено — напрямую"
 }
 
 func routingSummaryCopy(settings smart.RoutingSettings) string {
 	if !serviceSelectionEnabled(settings.Mode) {
-		if smart.HasEnabledCustomRules(settings) {
+		if smart.HasEnabledCustomRules(settings) || smart.HasDirectServiceExceptions(settings) {
 			return fmt.Sprintf("Весь трафик через VPN · активных правил: %d", enabledRuleCount(settings.CustomRules))
 		}
 		return "Нативный AWG · без дополнительной маршрутизации"
@@ -794,12 +796,10 @@ func (dashboard *Dashboard) drawHomePage(canvas *walk.Canvas, content walk.Recta
 	dashboard.drawText(canvas, "\ue7e8", dashboard.theme.powerFont, powerColor, innerBounds, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine)
 
 	status, statusDetail, statusColor := stateCopy(dashboard.globalState, busy)
-	if connected && smart.NormalizeMode(string(dashboard.settings.Mode)) == smart.ModeAll {
-		statusDetail = "Весь интернет идёт через VPN"
-		if smart.HasEnabledCustomRules(dashboard.settings) {
-			statusDetail = "Весь интернет через VPN, свои правила применяются раньше"
-		}
+	if connected {
+		statusDetail = "Активный профиль: " + dashboard.activeName
 	}
+
 	dashboard.drawText(canvas, status, dashboard.theme.headingFont, statusColor, walk.Rectangle{X: content.X, Y: centerY + dashboard.px(96), Width: content.Width, Height: dashboard.px(26)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine)
 	dashboard.drawText(canvas, statusDetail, dashboard.theme.smallFont, dashboard.theme.mutedColor, walk.Rectangle{X: content.X, Y: centerY + dashboard.px(122), Width: content.Width, Height: dashboard.px(22)}, walk.TextCenter|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
 
@@ -809,7 +809,7 @@ func (dashboard *Dashboard) drawHomePage(canvas *walk.Canvas, content walk.Recta
 	routingBounds := walk.Rectangle{X: content.X, Y: cardY, Width: cardWidth, Height: dashboard.px(98)}
 	dashboard.drawCard(canvas, "home:routing", routingBounds, false, dashboard.selectedProfile() == nil || busy)
 	modeTitle, _ := modeCopy(dashboard.settings.Mode)
-	dashboard.drawText(canvas, "МАРШРУТИЗАЦИЯ", dashboard.theme.microFont, dashboard.theme.accentColor, walk.Rectangle{X: routingBounds.X + dashboard.px(18), Y: routingBounds.Y + dashboard.px(14), Width: routingBounds.Width - dashboard.px(36), Height: dashboard.px(18)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine)
+	dashboard.drawText(canvas, "СОХРАНЁННАЯ МАРШРУТИЗАЦИЯ", dashboard.theme.microFont, dashboard.theme.accentColor, walk.Rectangle{X: routingBounds.X + dashboard.px(18), Y: routingBounds.Y + dashboard.px(14), Width: routingBounds.Width - dashboard.px(36), Height: dashboard.px(18)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine)
 	dashboard.drawText(canvas, modeTitle, dashboard.theme.headingFont, dashboard.theme.textColor, walk.Rectangle{X: routingBounds.X + dashboard.px(18), Y: routingBounds.Y + dashboard.px(35), Width: routingBounds.Width - dashboard.px(60), Height: dashboard.px(24)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
 	dashboard.drawText(canvas, routingSummaryCopy(dashboard.settings), dashboard.theme.smallFont, dashboard.theme.mutedColor, walk.Rectangle{X: routingBounds.X + dashboard.px(18), Y: routingBounds.Y + dashboard.px(62), Width: routingBounds.Width - dashboard.px(36), Height: dashboard.px(22)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
 
@@ -856,20 +856,36 @@ func (dashboard *Dashboard) drawRoutingPage(canvas *walk.Canvas, content walk.Re
 	dashboard.drawText(canvas, sectionTitle, dashboard.theme.headingFont, dashboard.theme.textColor, walk.Rectangle{X: content.X, Y: sectionY, Width: content.Width / 2, Height: dashboard.px(26)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
 	dashboard.drawText(canvas, sectionDetail, dashboard.theme.smallFont, dashboard.theme.mutedColor, walk.Rectangle{X: content.X + content.Width/2, Y: sectionY, Width: content.Width / 2, Height: dashboard.px(26)}, walk.TextRight|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
 
-	services := smart.ServiceCatalog()
+	services := smart.VisibleServicesForSettings(dashboard.settings)
 	gridY := sectionY + dashboard.px(38)
 	serviceColumns := 2
 	if len(services) > 4 {
 		serviceColumns = 3
 	}
 	serviceWidth := (content.Width - gap*(serviceColumns-1)) / serviceColumns
-	for i, service := range services {
+	totalRows := (len(services) + serviceColumns - 1) / serviceColumns
+	visibleRows := (content.Y + content.Height - gridY - dashboard.px(98)) / dashboard.px(90)
+	if visibleRows < 1 {
+		visibleRows = 1
+	}
+	if visibleRows > totalRows {
+		visibleRows = totalRows
+	}
+	if dashboard.serviceScroll > totalRows-visibleRows {
+		dashboard.serviceScroll = totalRows - visibleRows
+	}
+	start := dashboard.serviceScroll * serviceColumns
+	end := start + visibleRows*serviceColumns
+	if end > len(services) {
+		end = len(services)
+	}
+	for i, service := range services[start:end] {
 		column := i % serviceColumns
 		row := i / serviceColumns
 		rect := walk.Rectangle{X: content.X + column*(serviceWidth+gap), Y: gridY + row*dashboard.px(90), Width: serviceWidth, Height: dashboard.px(76)}
 		id := "service:" + service.ID
-		selectionEnabled := serviceSelectionEnabled(dashboard.settings.Mode)
-		selected := selectionEnabled && containsString(dashboard.settings.SelectedApps, service.ID)
+		selectionEnabled := serviceSelectionEnabled(dashboard.settings.Mode) || smart.IsRegionalService(service.ID)
+		selected := selectionEnabled && dashboard.settings.ServiceUsesVPN(service.ID)
 		disabled := busy || dashboard.selectedProfile() == nil || !selectionEnabled
 		dashboard.drawCard(canvas, id, rect, selected, disabled)
 		dashboard.drawText(canvas, service.Name, dashboard.theme.headingFont, dashboard.theme.textColor, walk.Rectangle{X: rect.X + dashboard.px(17), Y: rect.Y + dashboard.px(12), Width: rect.Width - dashboard.px(90), Height: dashboard.px(24)}, walk.TextLeft|walk.TextVCenter|walk.TextSingleLine|walk.TextEndEllipsis)
@@ -877,7 +893,8 @@ func (dashboard *Dashboard) drawRoutingPage(canvas *walk.Canvas, content walk.Re
 		dashboard.drawToggle(canvas, id, walk.Rectangle{X: rect.X + rect.Width - dashboard.px(60), Y: rect.Y + dashboard.px(24), Width: dashboard.px(42), Height: dashboard.px(24)}, selected, disabled)
 	}
 
-	serviceRows := (len(services) + serviceColumns - 1) / serviceColumns
+	serviceRows := visibleRows
+	dashboard.drawScrollIndicator(canvas, walk.Rectangle{X: content.X + content.Width - dashboard.px(4), Y: gridY, Width: dashboard.px(4), Height: visibleRows * dashboard.px(90)}, totalRows, visibleRows, dashboard.serviceScroll)
 	rulesY := gridY + serviceRows*dashboard.px(90) + dashboard.px(10)
 	rulesBounds := walk.Rectangle{X: content.X, Y: rulesY, Width: content.Width, Height: dashboard.px(72)}
 	dashboard.drawCard(canvas, "routing:rules", rulesBounds, false, dashboard.selectedProfile() == nil || busy)

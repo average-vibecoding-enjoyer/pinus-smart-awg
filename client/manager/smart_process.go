@@ -4,6 +4,7 @@ package manager
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -21,17 +22,21 @@ import (
 
 	"github.com/amnezia-vpn/amneziawg-windows-client/smart"
 	"github.com/amnezia-vpn/amneziawg-windows/conf"
+	"github.com/amnezia-vpn/amneziawg-windows/tunnel/firewall"
+	"github.com/amnezia-vpn/amneziawg-windows/tunnel/winipcfg"
 )
 
 type smartProcessState struct {
-	tunnelName string
-	settings   smart.RoutingSettings
-	process    *os.Process
-	pid        int
-	configPath string
-	logPath    string
-	waitOnce   sync.Once
-	waitErr    error
+	tunnelName    string
+	settings      smart.RoutingSettings
+	process       *os.Process
+	probePort     int
+	probePassword string
+	pid           int
+	configPath    string
+	logPath       string
+	waitOnce      sync.Once
+	waitErr       error
 }
 
 var (
@@ -316,7 +321,7 @@ func smartStopTunnel(tunnelName string) (bool, error) {
 }
 
 func usesNativeTunnel(settings smart.RoutingSettings) bool {
-	return smart.NormalizeMode(string(settings.Mode)) == smart.ModeAll && !smart.HasEnabledCustomRules(settings)
+	return smart.NormalizeMode(string(settings.Mode)) == smart.ModeAll && !smart.HasEnabledCustomRules(settings) && !smart.HasDirectServiceExceptions(settings) && settings.Protection == "" && len(settings.FallbackProfiles) == 0
 }
 
 func (s *ManagerService) SmartStart(tunnelName, rawSettings string) error {
@@ -337,11 +342,23 @@ func (s *ManagerService) SmartStart(tunnelName, rawSettings string) error {
 }
 
 func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.RoutingSettings, persistDesired bool) error {
+	if err := previewConnectionPreflight(); err != nil {
+		return err
+	}
 	if usesNativeTunnel(settings) {
+		smartProcessLock.Lock()
+		previous := smartProcess
+		smartProcessLock.Unlock()
 		if err := smartStopUnlocked(); err != nil {
 			return fmt.Errorf("stop smart routing before native tunnel: %w", err)
 		}
-		if err := s.Start(tunnelName); err != nil {
+		if err := s.startNativeUnlocked(tunnelName); err != nil {
+			if previous != nil {
+				return errors.Join(err, s.smartStartLocked(previous.tunnelName, previous.settings, false))
+			}
+			return err
+		}
+		if err := firewall.ClearPreviewGuard(); err != nil {
 			return err
 		}
 		if persistDesired {
@@ -358,6 +375,14 @@ func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.Rout
 		return err
 	}
 	configBytes, err := smart.BuildConfig(c, settings)
+	if err != nil {
+		return err
+	}
+	probePort, probePassword, err := prepareDiagnosticListener()
+	if err != nil {
+		return err
+	}
+	configBytes, err = smart.AddDiagnosticInbound(configBytes, probePort, probePassword)
 	if err != nil {
 		return err
 	}
@@ -378,7 +403,9 @@ func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.Rout
 	if err != nil {
 		return err
 	}
-	check := exec.Command(enginePath, "check", "-c", configPath, "--disable-color")
+	checkContext, cancelCheck := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancelCheck()
+	check := exec.CommandContext(checkContext, enginePath, "pinus-check", "-c", configPath, "--disable-color")
 	check.Dir = filepath.Dir(enginePath)
 	if output, checkErr := check.CombinedOutput(); checkErr != nil {
 		message := strings.TrimSpace(string(output))
@@ -387,18 +414,64 @@ func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.Rout
 		}
 		return fmt.Errorf("routing config validation failed: %s", message)
 	}
-	_, priorSmartActive := smartStateForTunnel(tunnelName)
-	priorState, priorStateErr := s.State(tunnelName)
-	nativeWasRunning := !priorSmartActive && priorStateErr == nil && (priorState == TunnelStarted || priorState == TunnelStarting)
+	nativeStates, priorStateErr := s.nativeTunnelStates()
+	if priorStateErr != nil {
+		return priorStateErr
+	}
+	priorNative := ""
+	for name, state := range nativeStates {
+		_, isSmart := smartStateForTunnel(name)
+		if !isSmart && (state == TunnelStarted || state == TunnelStarting) {
+			if priorNative != "" {
+				return errors.New("multiple native predecessors; stop extra profiles explicitly")
+			}
+			priorNative = name
+		}
+	}
+	smartProcessLock.Lock()
+	priorSmart := smartProcess
+	smartProcessLock.Unlock()
 
+	if settings.Protection == "all" {
+		if err := firewall.SetPreviewGuard(enginePath, 0); err != nil {
+			return fmt.Errorf("enable protection: %w", err)
+		}
+	}
 	if err := s.stopAllNativeTunnels(); err != nil {
+		// Installing the provisional guard must not strand a predecessor when
+		// stopping its native service fails before the actual switch.
+		if settings.Protection == "all" && (priorNative != "" || priorSmart != nil) {
+			var guardErr error
+			if priorSmart != nil && priorSmart.settings.Protection == "all" {
+				iface, lookupErr := net.InterfaceByName(smart.TunInterfaceName)
+				guardErr = lookupErr
+				if lookupErr == nil {
+					luid, luidErr := winipcfg.LUIDFromIndex(uint32(iface.Index))
+					guardErr = luidErr
+					if luidErr == nil {
+						guardErr = firewall.SetPreviewGuard(enginePath, uint64(luid))
+					}
+				}
+			} else {
+				guardErr = firewall.ClearPreviewGuard()
+			}
+			return errors.Join(err, guardErr)
+		}
 		return err
 	}
 	restoreNative := func(cause error) error {
-		if !nativeWasRunning {
+		if priorNative == "" {
+			if priorSmart != nil {
+				if restoreErr := s.smartStartLocked(priorSmart.tunnelName, priorSmart.settings, false); restoreErr != nil {
+					return errors.Join(cause, fmt.Errorf("restore smart predecessor: %w", restoreErr))
+				}
+			}
 			return cause
 		}
-		if restoreErr := s.Start(tunnelName); restoreErr != nil {
+		if guardErr := firewall.ClearPreviewGuard(); guardErr != nil {
+			cause = errors.Join(cause, guardErr)
+		}
+		if restoreErr := s.startNativeUnlocked(priorNative); restoreErr != nil {
 			return errors.Join(cause, fmt.Errorf("restore native AWG: %w", restoreErr))
 		}
 		return fmt.Errorf("%w; native AWG was restored", cause)
@@ -451,6 +524,7 @@ func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.Rout
 		settings:   settings,
 		process:    process,
 		pid:        process.Pid,
+		probePort:  probePort, probePassword: probePassword,
 		configPath: configPath,
 		logPath:    logPath,
 	}
@@ -477,11 +551,28 @@ func (s *ManagerService) smartStartLocked(tunnelName string, settings smart.Rout
 		return restoreNative(fmt.Errorf("start smart engine: %w", readyErr))
 	}
 
+	if settings.Protection == "all" {
+		iface, guardErr := net.InterfaceByName(smart.TunInterfaceName)
+		if guardErr == nil {
+			var luid winipcfg.LUID
+			luid, guardErr = winipcfg.LUIDFromIndex(uint32(iface.Index))
+			if guardErr == nil {
+				guardErr = firewall.SetPreviewGuard(enginePath, uint64(luid))
+			}
+		}
+		if guardErr != nil {
+			_ = stopSmartProcessState(state)
+			return restoreNative(fmt.Errorf("activate protection: %w", guardErr))
+		}
+	} else if guardErr := firewall.ClearPreviewGuard(); guardErr != nil {
+		_ = stopSmartProcessState(state)
+		return restoreNative(guardErr)
+	}
 	if persistDesired {
 		if err = saveSmartDesired(tunnelName, settings); err != nil {
 			_ = stopSmartProcessState(state)
 			IPCServerNotifyTunnelChange(tunnelName, TunnelStopped, err)
-			return fmt.Errorf("persist smart recovery state: %w", err)
+			return restoreNative(fmt.Errorf("persist smart recovery state: %w", err))
 		}
 	}
 	smartProcessLock.Lock()
@@ -524,5 +615,5 @@ func (s *ManagerService) SmartStop() error {
 	desiredErr := clearSmartDesired()
 	stopErr := smartStopUnlocked()
 	markSmartRecoveryHealthy()
-	return errors.Join(desiredErr, stopErr)
+	return errors.Join(desiredErr, stopErr, firewall.ClearPreviewGuard())
 }

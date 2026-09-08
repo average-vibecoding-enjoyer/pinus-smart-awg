@@ -532,8 +532,8 @@ func (pv *peerView) apply(c *conf.Peer) {
 		pv.endpoint.hide()
 	}
 
-	if c.PersistentKeepalive > 0 {
-		pv.persistentKeepalive.show(strconv.Itoa(int(c.PersistentKeepalive)))
+	if c.PersistentKeepalive != "" && c.PersistentKeepalive != "0" && c.PersistentKeepalive != "off" {
+		pv.persistentKeepalive.show(c.PersistentKeepalive)
 	} else {
 		pv.persistentKeepalive.hide()
 	}

@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/amnezia-vpn/amneziawg-windows/conf"
 	"net"
 	"net/url"
 	"os"
@@ -18,7 +19,8 @@ import (
 	"golang.org/x/net/idna"
 )
 
-const settingsVersion = 4
+const settingsVersion = 5
+const MaxSettingsSize = 1024 * 1024
 
 var legacyDefaultServiceIDs = []string{"discord", "youtube", "telegram", "instagram"}
 
@@ -66,10 +68,14 @@ type CustomRule struct {
 }
 
 type RoutingSettings struct {
-	Version      int          `json:"version"`
-	Mode         Mode         `json:"mode"`
-	SelectedApps []string     `json:"selected_apps"`
-	CustomRules  []CustomRule `json:"custom_rules,omitempty"`
+	ServiceRoutes    map[Mode]map[string]bool `json:"service_routes,omitempty"`
+	CatalogEnvelope  json.RawMessage          `json:"catalog_envelope,omitempty"`
+	FallbackProfiles []string                 `json:"fallback_profiles,omitempty"`
+	Protection       string                   `json:"protection,omitempty"`
+	Version          int                      `json:"version"`
+	Mode             Mode                     `json:"mode"`
+	SelectedApps     []string                 `json:"selected_apps"`
+	CustomRules      []CustomRule             `json:"custom_rules,omitempty"`
 }
 
 func HasEnabledCustomRules(settings RoutingSettings) bool {
@@ -250,6 +256,20 @@ func (rule CustomRule) normalized(index int) (CustomRule, error) {
 }
 
 func (settings RoutingSettings) Normalized() (RoutingSettings, error) {
+	if settings.Version > settingsVersion {
+		return settings, errors.New("unsupported settings version")
+	}
+	if settings.Protection != "" && settings.Protection != "all" {
+		return settings, errors.New("unknown protection policy")
+	}
+	if len(settings.FallbackProfiles) > 8 {
+		return settings, errors.New("не более 8 резервных профилей")
+	}
+	for _, name := range settings.FallbackProfiles {
+		if !conf.TunnelNameIsValid(name) {
+			return settings, errors.New("неверное имя резервного профиля")
+		}
+	}
 	storedVersion := settings.Version
 	legacyMode := settings.Mode == ModeSocial || settings.Mode == ModeNative
 	settings.Mode = NormalizeMode(string(settings.Mode))
@@ -264,8 +284,12 @@ func (settings RoutingSettings) Normalized() (RoutingSettings, error) {
 	}
 	settings.Version = settingsVersion
 
+	catalog, catalogErr := verifiedSettingsCatalog(settings.CatalogEnvelope)
+	if catalogErr != nil {
+		return settings, catalogErr
+	}
 	known := make(map[string]bool)
-	for _, service := range ServiceCatalog() {
+	for _, service := range catalog {
 		known[service.ID] = true
 	}
 	selected := make([]string, 0, len(settings.SelectedApps))
@@ -328,6 +352,9 @@ func legacySettingsPath(tunnelName string) string {
 }
 
 func ParseSettingsPayload(raw string) (RoutingSettings, error) {
+	if len(raw) > MaxSettingsSize {
+		return RoutingSettings{}, errors.New("настройки превышают 1 МБ")
+	}
 	raw = strings.TrimSpace(raw)
 	if raw == "" || !strings.HasPrefix(raw, "{") {
 		settings := DefaultSettings()
@@ -350,16 +377,19 @@ func SettingsPayload(settings RoutingSettings) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if len(data) > MaxSettingsSize {
+		return "", errors.New("настройки превышают 1 МБ")
+	}
 	return string(data), nil
 }
 
 func LoadSettings(tunnelName string) (RoutingSettings, error) {
 	path := settingsPath(tunnelName)
-	data, err := os.ReadFile(path)
+	data, err := readLimitedFile(path, MaxSettingsSize)
 	legacyPath := legacySettingsPath(tunnelName)
 	loadedLegacy := false
 	if errors.Is(err, os.ErrNotExist) && legacyPath != path {
-		data, err = os.ReadFile(legacyPath)
+		data, err = readLimitedFile(legacyPath, MaxSettingsSize)
 		loadedLegacy = err == nil
 	}
 	if errors.Is(err, os.ErrNotExist) {
@@ -390,6 +420,8 @@ func LoadSettings(tunnelName string) (RoutingSettings, error) {
 }
 
 func SaveSettings(tunnelName string, settings RoutingSettings) error {
+	settingsFileMutex.Lock()
+	defer settingsFileMutex.Unlock()
 	normalized, err := settings.Normalized()
 	if err != nil {
 		return err
@@ -401,6 +433,9 @@ func SaveSettings(tunnelName string, settings RoutingSettings) error {
 	data, err := json.MarshalIndent(normalized, "", "  ")
 	if err != nil {
 		return err
+	}
+	if len(data) >= MaxSettingsSize {
+		return errors.New("настройки превышают 1 МБ")
 	}
 	temporary, err := os.CreateTemp(filepath.Dir(path), ".pinus-settings-*")
 	if err != nil {
@@ -416,6 +451,9 @@ func SaveSettings(tunnelName string, settings RoutingSettings) error {
 		err = closeErr
 	}
 	if err != nil {
+		return err
+	}
+	if err := recordPreviousSettings(tunnelName); err != nil {
 		return err
 	}
 	return os.Rename(temporaryPath, path)

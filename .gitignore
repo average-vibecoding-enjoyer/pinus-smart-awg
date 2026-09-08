@@ -27,3 +27,5 @@
 /.codex-front/
 /.vscode/
 /.idea/
+__pycache__/
+*.pyc

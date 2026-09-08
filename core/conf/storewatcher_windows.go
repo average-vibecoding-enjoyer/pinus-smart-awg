@@ -7,24 +7,24 @@ package conf
 
 import (
 	"log"
+	"sync/atomic"
 
 	"golang.org/x/sys/windows"
 )
 
-var haveStartedWatchingConfigDir bool
+var haveStartedWatchingConfigDir atomic.Bool
 
 func startWatchingConfigDir() {
-	if haveStartedWatchingConfigDir {
+	if !haveStartedWatchingConfigDir.CompareAndSwap(false, true) {
 		return
 	}
-	haveStartedWatchingConfigDir = true
 	go func() {
 		h := windows.InvalidHandle
 		defer func() {
 			if h != windows.InvalidHandle {
 				windows.FindCloseChangeNotification(h)
 			}
-			haveStartedWatchingConfigDir = false
+			haveStartedWatchingConfigDir.Store(false)
 		}()
 	startover:
 		configFileDir, err := tunnelConfigurationsDirectory()
@@ -45,9 +45,7 @@ func startWatchingConfigDir() {
 				goto startover
 			}
 
-			for cb := range storeCallbacks {
-				cb.cb()
-			}
+			notifyStoreChanged()
 
 			err = windows.FindNextChangeNotification(h)
 			if err != nil {

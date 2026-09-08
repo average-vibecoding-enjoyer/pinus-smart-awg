@@ -55,9 +55,9 @@ func TestVerifyWintunDLLRejectsMissingFile(t *testing.T) {
 }
 
 func TestSecureInstallDirectoryIsVersioned(t *testing.T) {
-	dataDirectory := filepath.Join(`C:\Program Files`, "Pinus Smart AWG Next", "Data")
+	dataDirectory := filepath.Join(`C:\Program Files`, "Pinus Smart AWG Preview", "Data")
 	got := secureInstallDirectory(dataDirectory)
-	want := filepath.Join(`C:\Program Files`, "Pinus Smart AWG Next", "Versions", version.Number)
+	want := filepath.Join(`C:\Program Files`, "Pinus Smart AWG Preview", "Versions", version.Number)
 	if got != want {
 		t.Fatalf("secure install directory = %q, want %q", got, want)
 	}

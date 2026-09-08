@@ -253,8 +253,8 @@ func TestReadProfileFilesCapsArchiveCount(t *testing.T) {
 	}
 
 	profiles, err := readProfileFiles([]string{path})
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("truncation must be reported")
 	}
 	if len(profiles) != maxImportedProfileCount {
 		t.Fatalf("profile count = %d, want %d", len(profiles), maxImportedProfileCount)

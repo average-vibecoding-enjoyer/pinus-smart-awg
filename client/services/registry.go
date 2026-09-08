@@ -4,7 +4,7 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-const userRegKey = `Software\PinusSmartAWGNext`
+const userRegKey = `Software\PinusSmartAWGPreview`
 
 var userKey registry.Key
 

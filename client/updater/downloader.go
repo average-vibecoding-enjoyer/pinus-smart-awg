@@ -79,12 +79,14 @@ func checkForUpdate(keepSession bool) (*UpdateFound, *winhttp.Session, *winhttp.
 		return nil, nil, nil, err
 	}
 	defer response.Close()
-	var fileList [1024 * 512] /* 512 KiB */ byte
-	bytesRead, err := response.Read(fileList[:])
-	if err != nil && (err != io.EOF || bytesRead == 0) {
+	fileList, err := io.ReadAll(io.LimitReader(response, 512*1024+1))
+	if err != nil {
 		return nil, nil, nil, err
 	}
-	files, err := readFileList(fileList[:bytesRead])
+	if len(fileList) > 512*1024 {
+		return nil, nil, nil, errors.New("update metadata too large")
+	}
+	files, err := readFileList(fileList)
 	if err != nil {
 		return nil, nil, nil, err
 	}

@@ -1,33 +1,94 @@
+diff --git a/cmd/sing-box/cmd_pinus_check.go b/cmd/sing-box/cmd_pinus_check.go
+new file mode 100644
+index 0000000..86eef93
+--- /dev/null
++++ b/cmd/sing-box/cmd_pinus_check.go
+@@ -0,0 +1,29 @@
++//go:build with_awg
++
++package main
++
++import (
++ "github.com/sagernet/sing-box/option"
++ "github.com/sagernet/sing-box/protocol/awg"
++ "github.com/spf13/cobra"
++)
++
++// Unlike the generic check command, this validation never constructs a box,
++// endpoint device, TUN, listener, routing manager or DNS transport.
++var commandPinusCheck = &cobra.Command{
++ Use:"pinus-check",Short:"Validate Pinus configuration without network side effects",
++ Args:cobra.NoArgs,
++ RunE:func(cmd *cobra.Command,args []string)error{
++  options,err:=readConfigAndMerge();if err!=nil{return err}
++  return validatePinusOptions(options)
++ },
++}
++func init(){ mainCommand.AddCommand(commandPinusCheck) }
++func validatePinusOptions(options option.Options) error {
++ for _, endpoint:=range options.Endpoints {
++  if config,ok:=endpoint.Options.(*option.AwgEndpointOptions);ok {
++   if err:=awg.ValidateEndpointConfig(*config);err!=nil{return err}
++  }
++ }
++ return nil
++}
 diff --git a/go.mod b/go.mod
-index 00d1525..fc89959 100644
+index 00d1525..84d4ed4 100644
 --- a/go.mod
 +++ b/go.mod
-@@ -1,6 +1,6 @@
+@@ -1,20 +1,20 @@
  module github.com/sagernet/sing-box
  
 -go 1.24.7
-+go 1.25.0
++go 1.26.0
  
  require (
- 	github.com/amnezia-vpn/amneziawg-go v0.2.17-0.20251219021448-449d7cffd4ad
+-	github.com/amnezia-vpn/amneziawg-go v0.2.17-0.20251219021448-449d7cffd4ad
++	github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828
+ 	github.com/anthropics/anthropic-sdk-go v1.26.0
+ 	github.com/anytls/sing-anytls v0.0.11
+ 	github.com/caddyserver/certmagic v0.25.2
+ 	github.com/coder/websocket v1.8.14
+ 	github.com/cretz/bine v0.2.0
+ 	github.com/database64128/tfo-go/v2 v2.3.2
+-	github.com/go-chi/chi/v5 v5.2.5
++	github.com/go-chi/chi/v5 v5.3.0
+ 	github.com/go-chi/render v1.0.3
+ 	github.com/godbus/dbus/v5 v5.2.2
+ 	github.com/gofrs/uuid/v5 v5.4.0
+-	github.com/insomniacslk/dhcp v0.0.0-20260220084031-5adc3eb26f91
++	github.com/insomniacslk/dhcp v0.0.0-20260719225207-c76316d4aa82
+ 	github.com/keybase/go-keychain v0.0.1
+ 	github.com/libdns/acmedns v0.5.0
+ 	github.com/libdns/alidns v1.0.6
 @@ -51,12 +51,12 @@ require (
  	github.com/vishvananda/netns v0.0.5
  	go.uber.org/zap v1.27.1
  	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba
 -	golang.org/x/crypto v0.48.0
-+	golang.org/x/crypto v0.54.0
++	golang.org/x/crypto v0.56.0
  	golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93
 -	golang.org/x/mod v0.33.0
 -	golang.org/x/net v0.50.0
 -	golang.org/x/sync v0.19.0
 -	golang.org/x/sys v0.41.0
-+	golang.org/x/mod v0.37.0
-+	golang.org/x/net v0.57.0
++	golang.org/x/mod v0.40.0
++	golang.org/x/net v0.58.0
 +	golang.org/x/sync v0.22.0
 +	golang.org/x/sys v0.47.0
  	golang.zx2c4.com/wireguard/wgctrl v0.0.0-20241231184526-a9ab2273dd10
  	google.golang.org/grpc v1.79.1
  	google.golang.org/protobuf v1.36.11
+@@ -95,7 +95,7 @@ require (
+ 	github.com/hdevalence/ed25519consensus v0.2.0 // indirect
+ 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+ 	github.com/jsimonetti/rtnetlink v1.4.0 // indirect
+-	github.com/klauspost/compress v1.18.0 // indirect
++	github.com/klauspost/compress v1.18.7 // indirect
+ 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+ 	github.com/libdns/libdns v1.1.1 // indirect
+ 	github.com/mdlayher/netlink v1.9.0 // indirect
 @@ -157,10 +157,10 @@ require (
  	go.uber.org/zap/exp v0.3.0 // indirect
  	go4.org/mem v0.0.0-20240501181205-ae6ca9944745 // indirect
@@ -35,15 +96,154 @@ index 00d1525..fc89959 100644
 -	golang.org/x/term v0.40.0 // indirect
 -	golang.org/x/text v0.34.0 // indirect
 +	golang.org/x/term v0.45.0 // indirect
-+	golang.org/x/text v0.40.0 // indirect
++	golang.org/x/text v0.41.0 // indirect
  	golang.org/x/time v0.11.0 // indirect
 -	golang.org/x/tools v0.42.0 // indirect
-+	golang.org/x/tools v0.47.0 // indirect
++	golang.org/x/tools v0.49.0 // indirect
  	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
  	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
  	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
+@@ -168,3 +168,5 @@ require (
+ 	gvisor.dev/gvisor v0.0.0-20231202080848-1f7806d17489 // indirect
+ 	lukechampine.com/blake3 v1.3.0 // indirect
+ )
++
++replace github.com/amnezia-vpn/amneziawg-go/v3 => ./pinus-awg3
+diff --git a/go.sum b/go.sum
+index 4545eb8..9824860 100644
+--- a/go.sum
++++ b/go.sum
+@@ -8,8 +8,8 @@ github.com/akutz/memconn v0.1.0 h1:NawI0TORU4hcOMsMr11g7vwlCdkYeLKXBcxWu2W/P8A=
+ github.com/akutz/memconn v0.1.0/go.mod h1:Jo8rI7m0NieZyLI5e2CDlRdRqRRB4S7Xp77ukDjH+Fw=
+ github.com/alexbrainman/sspi v0.0.0-20231016080023-1a75b4708caa h1:LHTHcTQiSGT7VVbI0o4wBRNQIgn917usHWOd6VAffYI=
+ github.com/alexbrainman/sspi v0.0.0-20231016080023-1a75b4708caa/go.mod h1:cEWa1LVoE5KvSD9ONXsZrj0z6KqySlCCNKHlLzbqAt4=
+-github.com/amnezia-vpn/amneziawg-go v0.2.17-0.20251219021448-449d7cffd4ad h1:O3bvp109FZxwf3lWDd5lxmQz8NwQJgvk1nd60vnXMgw=
+-github.com/amnezia-vpn/amneziawg-go v0.2.17-0.20251219021448-449d7cffd4ad/go.mod h1:aMgOk9MuX0xI7b5TKAYp8pLM54RlXcOPzDvYw3YEO5A=
++github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828 h1:D8d8gGvwXcTxUIsE4z6F6vjy4/VZddu95vMNtOygh1c=
++github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828/go.mod h1:YoPc6qcOZqD7TXZ1xpedD8Sx3aSKsxN05ZqEFmXDNHk=
+ github.com/andybalholm/brotli v1.1.0 h1:eLKJA0d02Lf0mVpIDgYnqXcUn0GqVmEFny3VuID1U3M=
+ github.com/andybalholm/brotli v1.1.0/go.mod h1:sms7XGricyQI9K10gOSf56VKKWS4oLer58Q+mhRPtnY=
+ github.com/anthropics/anthropic-sdk-go v1.26.0 h1:oUTzFaUpAevfuELAP1sjL6CQJ9HHAfT7CoSYSac11PY=
+@@ -58,8 +58,8 @@ github.com/gaissmai/bart v0.18.0 h1:jQLBT/RduJu0pv/tLwXE+xKPgtWJejbxuXAR+wLJafo=
+ github.com/gaissmai/bart v0.18.0/go.mod h1:JJzMAhNF5Rjo4SF4jWBrANuJfqY+FvsFhW7t1UZJ+XY=
+ github.com/github/fakeca v0.1.0 h1:Km/MVOFvclqxPM9dZBC4+QE564nU4gz4iZ0D9pMw28I=
+ github.com/github/fakeca v0.1.0/go.mod h1:+bormgoGMMuamOscx7N91aOuUST7wdaJ2rNjeohylyo=
+-github.com/go-chi/chi/v5 v5.2.5 h1:Eg4myHZBjyvJmAFjFvWgrqDTXFyOzjj7YIm3L3mu6Ug=
+-github.com/go-chi/chi/v5 v5.2.5/go.mod h1:X7Gx4mteadT3eDOMTsXzmI4/rwUpOwBHLpAfupzFJP0=
++github.com/go-chi/chi/v5 v5.3.0 h1:halUjDxhshgXHMrao5bB8eNBXo/rnzwr8m5m36glehM=
++github.com/go-chi/chi/v5 v5.3.0/go.mod h1:R+tYY2hNuVUUjxoPtqUdgBqevM9s9njzkTLutVsOCto=
+ github.com/go-chi/render v1.0.3 h1:AsXqd2a1/INaIfUSKq3G5uA8weYx20FOsM7uSoCyyt4=
+ github.com/go-chi/render v1.0.3/go.mod h1:/gr3hVkmYR0YlEy3LxCuVRFzEu9Ruok+gFqbIofjao0=
+ github.com/go-jose/go-jose/v4 v4.1.3 h1:CVLmWDhDVRa6Mi/IgCgaopNosCaHz7zrMeF9MlZRkrs=
+@@ -101,15 +101,15 @@ github.com/hdevalence/ed25519consensus v0.2.0 h1:37ICyZqdyj0lAZ8P4D1d1id3HqbbG1N
+ github.com/hdevalence/ed25519consensus v0.2.0/go.mod h1:w3BHWjwJbFU29IRHL1Iqkw3sus+7FctEyM4RqDxYNzo=
+ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=
+ github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
+-github.com/insomniacslk/dhcp v0.0.0-20260220084031-5adc3eb26f91 h1:u9i04mGE3iliBh0EFuWaKsmcwrLacqGmq1G3XoaM7gY=
+-github.com/insomniacslk/dhcp v0.0.0-20260220084031-5adc3eb26f91/go.mod h1:qfvBmyDNp+/liLEYWRvqny/PEz9hGe2Dz833eXILSmo=
++github.com/insomniacslk/dhcp v0.0.0-20260719225207-c76316d4aa82 h1:y5aU8Uvl7eyM5WNgdQvRxbMJb+zo7pD+S72/Yo4pvnQ=
++github.com/insomniacslk/dhcp v0.0.0-20260719225207-c76316d4aa82/go.mod h1:qfvBmyDNp+/liLEYWRvqny/PEz9hGe2Dz833eXILSmo=
+ github.com/jessevdk/go-flags v1.4.0/go.mod h1:4FA24M0QyGHXBuZZK/XkWh8h0e1EYbRYJSGM75WSRxI=
+ github.com/jsimonetti/rtnetlink v1.4.0 h1:Z1BF0fRgcETPEa0Kt0MRk3yV5+kF1FWTni6KUFKrq2I=
+ github.com/jsimonetti/rtnetlink v1.4.0/go.mod h1:5W1jDvWdnthFJ7fxYX1GMK07BUpI4oskfOqvPteYS6E=
+ github.com/keybase/go-keychain v0.0.1 h1:way+bWYa6lDppZoZcgMbYsvC7GxljxrskdNInRtuthU=
+ github.com/keybase/go-keychain v0.0.1/go.mod h1:PdEILRW3i9D8JcdM+FmY6RwkHGnhHxXwkPPMeUgOK1k=
+-github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
+-github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
++github.com/klauspost/compress v1.18.7 h1:aUyZsS4kH3QTKurYhAOwAHxllVPnOthb3vPfnF1Ehjw=
++github.com/klauspost/compress v1.18.7/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
+ github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
+ github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
+ github.com/letsencrypt/challtestsrv v1.4.2 h1:0ON3ldMhZyWlfVNYYpFuWRTmZNnyfiL9Hh5YzC3JVwU=
+@@ -337,43 +337,43 @@ go4.org/mem v0.0.0-20240501181205-ae6ca9944745/go.mod h1:reUoABIJ9ikfM5sgtSF3Wus
+ go4.org/netipx v0.0.0-20231129151722-fdeea329fbba h1:0b9z3AuHCjxk0x/opv64kcgZLBseWJUpBw5I82+2U4M=
+ go4.org/netipx v0.0.0-20231129151722-fdeea329fbba/go.mod h1:PLyyIXexvUFg3Owu6p/WfdlivPbZJsZdgWZlrGope/Y=
+ golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a/go.mod h1:P+XmwS30IXTQdn5tA2iutPOUgjI07+tq3H3K9MVA1s8=
+-golang.org/x/crypto v0.48.0 h1:/VRzVqiRSggnhY7gNRxPauEQ5Drw9haKdM0jqfcCFts=
+-golang.org/x/crypto v0.48.0/go.mod h1:r0kV5h3qnFPlQnBSrULhlsRfryS2pmewsg+XfMgkVos=
++golang.org/x/crypto v0.56.0 h1:GUh5Ii4J5jtcseSMiRqr1jXCNHoxjeV9Fmekc2oLy6Y=
++golang.org/x/crypto v0.56.0/go.mod h1:OMW5y6CY9l38uPLmxU6l6pwcXp1obtLo3e6gT7gQR2I=
+ golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93 h1:fQsdNF2N+/YewlRZiricy4P1iimyPKZ/xwniHj8Q2a0=
+ golang.org/x/exp v0.0.0-20251219203646-944ab1f22d93/go.mod h1:EPRbTFwzwjXj9NpYyyrvenVh9Y+GFeEvMNh7Xuz7xgU=
+ golang.org/x/image v0.27.0 h1:C8gA4oWU/tKkdCfYT6T2u4faJu3MeNS5O8UPWlPF61w=
+ golang.org/x/image v0.27.0/go.mod h1:xbdrClrAUway1MUTEZDq9mz/UpRwYAkFFNUslZtcB+g=
+-golang.org/x/mod v0.33.0 h1:tHFzIWbBifEmbwtGz65eaWyGiGZatSrT9prnU8DbVL8=
+-golang.org/x/mod v0.33.0/go.mod h1:swjeQEj+6r7fODbD2cqrnje9PnziFuw4bmLbBZFrQ5w=
++golang.org/x/mod v0.40.0 h1:hUv+3cXcdRHz08UmSiOob7sadHig73uo5bkXxQ/tvUs=
++golang.org/x/mod v0.40.0/go.mod h1:0/weTWkPWGBikyTWAX3dkjVztMmBA5hM0DH6BElSupE=
+ golang.org/x/net v0.0.0-20210226172049-e18ecbb05110/go.mod h1:m0MpNAwzfU5UDzcl9v0D8zg8gWTRqZa9RBIspLL5mdg=
+ golang.org/x/net v0.0.0-20210525063256-abc453219eb5/go.mod h1:9nx3DQGgdP8bBQD5qxJ1jj9UTztislL4KSBs9R2vV5Y=
+-golang.org/x/net v0.50.0 h1:ucWh9eiCGyDR3vtzso0WMQinm2Dnt8cFMuQa9K33J60=
+-golang.org/x/net v0.50.0/go.mod h1:UgoSli3F/pBgdJBHCTc+tp3gmrU4XswgGRgtnwWTfyM=
++golang.org/x/net v0.58.0 h1:ynWG7rqYi4ccpTEuPZ2QGWHktVEM9DMCj9yzDE0Q7To=
++golang.org/x/net v0.58.0/go.mod h1:YwCddHnFlT7eLQqVprV19OnhLGtc5xOKgE0RyqgfWAU=
+ golang.org/x/oauth2 v0.34.0 h1:hqK/t4AKgbqWkdkcAeI8XLmbK+4m4G5YeQRrmiotGlw=
+ golang.org/x/oauth2 v0.34.0/go.mod h1:lzm5WQJQwKZ3nwavOZ3IS5Aulzxi68dUSgRHujetwEA=
+ golang.org/x/sync v0.0.0-20210220032951-036812b2e83c/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
+-golang.org/x/sync v0.19.0 h1:vV+1eWNmZ5geRlYjzm2adRgW2/mcpevXNg50YZtPCE4=
+-golang.org/x/sync v0.19.0/go.mod h1:9KTHXmSnoGruLpwFjVSX0lNNA75CykiMECbovNTZqGI=
++golang.org/x/sync v0.22.0 h1:SZjpbeLmrCk4xhRSZFNZW5gFUeCeFgjekvI/+gfScek=
++golang.org/x/sync v0.22.0/go.mod h1:9xrNwdLfx4jkKbNva9FpL6vEN7evnE43NNNJQ2LF3+0=
+ golang.org/x/sys v0.0.0-20200217220822-9197077df867/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20200728102440-3e129f6d46b1/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20201119102817-f84b799fce68/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.0.0-20210423082822-04245dca01da/go.mod h1:h1NjWce9XRLGQEsW7wpKNCjG9DtNlClVuFLEZdDNbEs=
+ golang.org/x/sys v0.1.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+ golang.org/x/sys v0.6.0/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
+-golang.org/x/sys v0.41.0 h1:Ivj+2Cp/ylzLiEU89QhWblYnOE9zerudt9Ftecq2C6k=
+-golang.org/x/sys v0.41.0/go.mod h1:OgkHotnGiDImocRcuBABYBEXf8A9a87e/uXjp9XT3ks=
++golang.org/x/sys v0.47.0 h1:o7XGOvZQCADBQQ4Y7VNq2dRWQR7JmOUW8Kxx4ZsNgWs=
++golang.org/x/sys v0.47.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
+ golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1/go.mod h1:bj7SfCRtBDWHUb9snDiAeCFNEtKQo2Wmx5Cou7ajbmo=
+-golang.org/x/term v0.40.0 h1:36e4zGLqU4yhjlmxEaagx2KuYbJq3EwY8K943ZsHcvg=
+-golang.org/x/term v0.40.0/go.mod h1:w2P8uVp06p2iyKKuvXIm7N/y0UCRt3UfJTfZ7oOpglM=
++golang.org/x/term v0.45.0 h1:NwWyBmoJCbfTHpxrWoZ9C6/VxOf7ic219I8xZZFdrf0=
++golang.org/x/term v0.45.0/go.mod h1:9aqxs0blBcrm/n0L9QW0aRVD+ktan8ssZromtqJC43w=
+ golang.org/x/text v0.3.3/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
+ golang.org/x/text v0.3.6/go.mod h1:5Zoc/QRtKVWzQhOtBMvqHzDpF6irO9z98xDceosuGiQ=
+-golang.org/x/text v0.34.0 h1:oL/Qq0Kdaqxa1KbNeMKwQq0reLCCaFtqu2eNuSeNHbk=
+-golang.org/x/text v0.34.0/go.mod h1:homfLqTYRFyVYemLBFl5GgL/DWEiH5wcsQ5gSh1yziA=
++golang.org/x/text v0.41.0 h1:vz/seA0lnX87Othu2f/0L24RcgrXD9/YFTSuGjj3rH8=
++golang.org/x/text v0.41.0/go.mod h1:jvf1O8ajNzZqhSrQBPbutR/EB83Cc0CFrezNQIwbb5M=
+ golang.org/x/time v0.11.0 h1:/bpjEDfN9tkoN/ryeYHnv5hcMlc8ncjMcM4XBk5NWV0=
+ golang.org/x/time v0.11.0/go.mod h1:CDIdPxbZBQxdj6cxyCIdrNogrJKMJ7pr37NYpMcMDSg=
+ golang.org/x/tools v0.0.0-20180917221912-90fa682c2a6e/go.mod h1:n7NCudcB/nEzxVGmLbDWY5pfWTLqBcC2KZ6jyYvM4mQ=
+-golang.org/x/tools v0.42.0 h1:uNgphsn75Tdz5Ji2q36v/nsFSfR/9BRFvqhGBaJGd5k=
+-golang.org/x/tools v0.42.0/go.mod h1:Ma6lCIwGZvHK6XtgbswSoWroEkhugApmsXyrUmBhfr0=
++golang.org/x/tools v0.49.0 h1:3NI7VXzL9+1WZD52Dx2ttoPwD5DWrFGpl9mFZDlmisI=
++golang.org/x/tools v0.49.0/go.mod h1:SJNXV9DBKT0UbdttsQjbfJlAE/q+y36++zo3uL3N0Oo=
+ golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
+ golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 h1:H2TDz8ibqkAF6YGhCdN3jS9O0/s90v0rJh3X/OLHEUk=
+ golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2/go.mod h1:K8+ghG5WaK9qNqU5K3HdILfMLy1f3aNYFI/wnl100a8=
+diff --git a/option/awg.go b/option/awg.go
+index f367fd4..c285d13 100644
+--- a/option/awg.go
++++ b/option/awg.go
+@@ -29,6 +29,15 @@ type AwgEndpointOptions struct {
+ 	I4               string                           `json:"i4,omitempty"`
+ 	I5               string                           `json:"i5,omitempty"`
+ 	Peers            []AwgPeerOptions                 `json:"peers,omitempty"`
++	HeaderProtectionKey string `json:"header_protection_key,omitempty"`
++	ContentPaddingAddition string `json:"content_padding_addition,omitempty"`
++	RekeyAfterTime string `json:"rekey_after_time,omitempty"`
++	RekeyTimeout string `json:"rekey_timeout,omitempty"`
++	RejectAfterTime string `json:"reject_after_time,omitempty"`
++	KeepaliveTimeout string `json:"keepalive_timeout,omitempty"`
++	MaxHandshakeAttempts string `json:"max_handshake_attempts,omitempty"`
++	RandomTrailers *bool `json:"random_trailers,omitempty"`
++	DisableCookies *bool `json:"disable_cookies,omitempty"`
+ 	DialerOptions
+ }
+ 
+@@ -38,5 +47,5 @@ type AwgPeerOptions struct {
+ 	PublicKey                   string                           `json:"public_key,omitempty"`
+ 	PresharedKey                string                           `json:"preshared_key,omitempty"`
+ 	AllowedIPs                  badoption.Listable[netip.Prefix] `json:"allowed_ips,omitempty"`
+-	PersistentKeepaliveInterval uint16                           `json:"persistent_keepalive_interval,omitempty"`
++	PersistentKeepaliveInterval string                           `json:"persistent_keepalive_interval,omitempty"`
+ }
 diff --git a/protocol/awg/endpoint.go b/protocol/awg/endpoint.go
-index 39213ad..9ebc1df 100644
+index 39213ad..f61fe34 100644
 --- a/protocol/awg/endpoint.go
 +++ b/protocol/awg/endpoint.go
 @@ -6,6 +6,7 @@ import (
@@ -70,7 +270,16 @@ index 39213ad..9ebc1df 100644
  		}
  	}
  
-@@ -122,6 +125,22 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
+@@ -99,7 +102,7 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
+ 		return nil, err
+ 	}
+ 
+-	logger.Debug("AWG IPC config:\n", ipc)
++	logger.Debug("AWG configuration validated")
+ 
+ 	dev, err := awg.NewDevice(ctx, logger, dial, ipc, awg.DeviceOpts{
+ 		UseIntegratedTun: options.UseIntegratedTun,
+@@ -122,11 +125,27 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
  	}, nil
  }
  
@@ -92,7 +301,54 @@ index 39213ad..9ebc1df 100644
 +
  func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string) (netip.Addr, error)) (string, error) {
  	privateKeyBytes, err := base64.StdEncoding.DecodeString(opts.PrivateKey)
- 	if err != nil {
+-	if err != nil {
+-		return "", err
+-	}
++	if err != nil || len(privateKeyBytes) != 32 {
++ return "", E.New("private key must be 32 base64-encoded bytes")
++ }
+ 	s := "private_key=" + hex.EncodeToString(privateKeyBytes)
+ 	if opts.ListenPort != 0 {
+ 		s += "\nlisten_port=" + format.ToString(opts.ListenPort)
+@@ -180,11 +199,23 @@ func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string
+ 		s += "\ni5=" + opts.I5
+ 	}
+ 
++if opts.HeaderProtectionKey != "" {
++ key, err := base64.StdEncoding.DecodeString(opts.HeaderProtectionKey)
++ if err != nil || len(key) != 32 { return "", E.New("header protection key must be 32 base64-encoded bytes") }
++ s += "\nheader_protection_key=" + hex.EncodeToString(key)
++ }
++if opts.ContentPaddingAddition != "" { s += "\ncontent_padding_addition=" + opts.ContentPaddingAddition }
++if opts.RekeyAfterTime != "" { s += "\nrekey_after_time=" + opts.RekeyAfterTime }
++if opts.RekeyTimeout != "" { s += "\nrekey_timeout=" + opts.RekeyTimeout }
++if opts.RejectAfterTime != "" { s += "\nreject_after_time=" + opts.RejectAfterTime }
++if opts.KeepaliveTimeout != "" { s += "\nkeepalive_timeout=" + opts.KeepaliveTimeout }
++if opts.MaxHandshakeAttempts != "" { s += "\nmax_handshake_attempts=" + opts.MaxHandshakeAttempts }
++if opts.RandomTrailers != nil { s += "\nrandom_trailers=" + format.ToString(*opts.RandomTrailers) }
++if opts.DisableCookies != nil { s += "\ndisable_cookies=" + format.ToString(*opts.DisableCookies) }
++
+ 	for _, peer := range opts.Peers {
+ 		publicKeyBytes, err := base64.StdEncoding.DecodeString(peer.PublicKey)
+-		if err != nil {
+-			return "", err
+-		}
++		if err != nil || len(publicKeyBytes) != 32 { return "", E.New("public key must be 32 base64-encoded bytes") }
+ 		s += "\npublic_key=" + hex.EncodeToString(publicKeyBytes)
+ 		if peer.PresharedKey != "" {
+ 			presharedKeyBytes, err := base64.StdEncoding.DecodeString(peer.PresharedKey)
+@@ -207,9 +238,9 @@ func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string
+ 				}
+ 				endpointAddr = resolvedAddr.String()
+ 			}
+-			s += "\nendpoint=" + endpointAddr + ":" + format.ToString(peer.Port)
++			s += "\nendpoint=" + net.JoinHostPort(endpointAddr, format.ToString(peer.Port))
+ 		}
+-		if peer.PersistentKeepaliveInterval != 0 {
++		if peer.PersistentKeepaliveInterval != "" {
+ 			s += "\npersistent_keepalive_interval=" + format.ToString(peer.PersistentKeepaliveInterval)
+ 		}
+ 		for _, allowedIp := range peer.AllowedIPs {
 diff --git a/protocol/awg/endpoint_test.go b/protocol/awg/endpoint_test.go
 new file mode 100644
 index 0000000..8b61e2f
@@ -134,3 +390,102 @@ index 0000000..8b61e2f
 +		t.Fatal("empty DNS answer was accepted")
 +	}
 +}
+diff --git a/protocol/awg/pinus_validation.go b/protocol/awg/pinus_validation.go
+new file mode 100644
+index 0000000..ffe9162
+--- /dev/null
++++ b/protocol/awg/pinus_validation.go
+@@ -0,0 +1,13 @@
++package awg
++
++import (
++ "net/netip"
++ "github.com/sagernet/sing-box/option"
++)
++
++// Resolver supplies only a synthetic address for syntax validation. Actual
++// hostname resolution happens later when the user starts this connection.
++func ValidateEndpointConfig(options option.AwgEndpointOptions) error {
++ _,err:=genIpcConfig(options,func(string)(netip.Addr,error){return netip.MustParseAddr("192.0.2.1"),nil})
++ return err
++}
+diff --git a/transport/awg/bind.go b/transport/awg/bind.go
+index 8c8ae68..addbb90 100644
+--- a/transport/awg/bind.go
++++ b/transport/awg/bind.go
+@@ -8,7 +8,7 @@ import (
+ 	"sync"
+ 	"syscall"
+ 
+-	"github.com/amnezia-vpn/amneziawg-go/conn"
++	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
+ 	E "github.com/sagernet/sing/common/exceptions"
+ 	M "github.com/sagernet/sing/common/metadata"
+ 	N "github.com/sagernet/sing/common/network"
+diff --git a/transport/awg/device.go b/transport/awg/device.go
+index 476a6ab..f6a2a6f 100644
+--- a/transport/awg/device.go
++++ b/transport/awg/device.go
+@@ -7,8 +7,8 @@ import (
+ 	"net/netip"
+ 	"strings"
+ 
+-	"github.com/amnezia-vpn/amneziawg-go/conn"
+-	"github.com/amnezia-vpn/amneziawg-go/device"
++	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
++	"github.com/amnezia-vpn/amneziawg-go/v3/device"
+ 
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing/common/exceptions"
+@@ -89,7 +89,9 @@ func (d *Device) Start(stage adapter.StartStage) error {
+ func (d *Device) Close() error {
+ 	if d.awgDevice != nil {
+ 		d.awgDevice.Close()
+-	}
++	} else if d.tun != nil {
++ return d.tun.Close()
++ }
+ 	return nil
+ }
+ 
+diff --git a/transport/awg/tun.go b/transport/awg/tun.go
+index a03c845..be6fdd1 100644
+--- a/transport/awg/tun.go
++++ b/transport/awg/tun.go
+@@ -1,7 +1,7 @@
+ package awg
+ 
+ import (
+-	awgTun "github.com/amnezia-vpn/amneziawg-go/tun"
++	awgTun "github.com/amnezia-vpn/amneziawg-go/v3/tun"
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing/common/network"
+ )
+diff --git a/transport/awg/tun_network.go b/transport/awg/tun_network.go
+index e2cf857..307707c 100644
+--- a/transport/awg/tun_network.go
++++ b/transport/awg/tun_network.go
+@@ -5,8 +5,8 @@ import (
+ 	"net"
+ 	"net/netip"
+ 
+-	"github.com/amnezia-vpn/amneziawg-go/tun"
+-	"github.com/amnezia-vpn/amneziawg-go/tun/netstack"
++	"github.com/amnezia-vpn/amneziawg-go/v3/tun"
++	"github.com/amnezia-vpn/amneziawg-go/v3/tun/netstack"
+ 	"github.com/sagernet/sing/common/metadata"
+ )
+ 
+diff --git a/transport/awg/tun_system.go b/transport/awg/tun_system.go
+index c924d91..958a459 100644
+--- a/transport/awg/tun_system.go
++++ b/transport/awg/tun_system.go
+@@ -6,7 +6,7 @@ import (
+ 	"net/netip"
+ 	"os"
+ 
+-	awgTun "github.com/amnezia-vpn/amneziawg-go/tun"
++	awgTun "github.com/amnezia-vpn/amneziawg-go/v3/tun"
+ 
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing-box/common/dialer"

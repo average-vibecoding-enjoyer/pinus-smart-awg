@@ -92,7 +92,7 @@ func TestFromWgQuick(t *testing.T) {
 		lenTest(t, conf.Peers[1].AllowedIPs, 2)
 		equal(t, Endpoint{Host: "2607:5300:60:6b0::c05f:543", Port: 2468}, conf.Peers[1].Endpoint)
 		equal(t, "TrMvSoP4jYQlY6RIzBgbssQqY3vxI2Pi+y71lOWWXX0=", conf.Peers[1].PublicKey.String())
-		equal(t, uint16(100), conf.Peers[1].PersistentKeepalive)
+		equal(t, "100", conf.Peers[1].PersistentKeepalive)
 
 		lenTest(t, conf.Peers[2].AllowedIPs, 1)
 		equal(t, Endpoint{Host: "test.wireguard.com", Port: 18981}, conf.Peers[2].Endpoint)

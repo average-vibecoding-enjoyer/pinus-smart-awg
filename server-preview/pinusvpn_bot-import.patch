@@ -1,0 +1,63 @@
+--- a/pinusvpn_bot.py
++++ b/pinusvpn_bot.py
+@@ -2729,6 +2729,9 @@
+         if requester_id != ADMIN_ID and int(profile["tg_id"]) != requester_id:
+             raise PermissionError("not-owner")
+         deprovision_profile(profile)
++        store = get_pinus_import_store()
++        if store is not None:
++            store.revoke(int(profile["tg_id"]), int(profile["id"]))
+         delete_profile_artifacts(profile)
+         with db() as conn:
+             conn.execute("DELETE FROM profiles WHERE id = ?", (profile_id,))
+@@ -3398,6 +3401,27 @@
+     return "\n".join(lines)
+ 
+ 
++_pinus_import_store = None
++
++
++def get_pinus_import_store():
++    global _pinus_import_store
++    origin = os.environ.get("PINUS_IMPORT_ORIGIN", "")
++    if not origin:
++        return None
++    if _pinus_import_store is None:
++        from pathlib import Path
++        from pinus_import import TokenStore
++        store = TokenStore(
++            Path(os.environ["PINUS_IMPORT_DB"]),
++            Path(os.environ["PINUS_IMPORT_KEY_FILE"]).read_bytes(),
++            origin,
++        )
++        store.initialize()
++        _pinus_import_store = store
++    return _pinus_import_store
++
++
+ def send_profile(chat_id, profile):
+     protocol = profile_protocol(profile)
+     node = profile_node(profile)
+@@ -3410,6 +3434,22 @@
+         )
+         send_document(chat_id, profile["config_path"], caption)
+         send_photo(chat_id, profile["qr_path"], f"QR AmneziaWG: {profile['label']}")
++        # Feature is off unless its separate HTTPS service is configured.
++        # Admin deliveries to a different chat do not receive an owner link.
++        if int(profile["tg_id"]) == int(chat_id) and is_authorized(int(chat_id)):
++            try:
++                store = get_pinus_import_store()
++                if store is not None:
++                    from pathlib import Path
++                    from pinus_import import issue_owned_awg_link
++                    link = issue_owned_awg_link(
++                        store, int(chat_id), profile,
++                        Path(os.environ["PINUS_IMPORT_PROFILE_ROOT"]), is_authorized,
++                    )
++                    send_message(chat_id, "Импорт в Pinus Preview (один раз, 5 минут):\n" + link)
++            except Exception:
++                # Do not log a profile, key, token or sensitive exception text.
++                send_message(chat_id, "Одноразовая ссылка временно недоступна. Используйте файл конфигурации выше.")
+         return
+     profile = refresh_vless_profile(profile)
+     if protocol == "vless":

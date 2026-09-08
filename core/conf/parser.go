@@ -63,10 +63,11 @@ func parseIPCidr(s string) (ipcidr *IPCidr, err error) {
 	if maybeV4 != nil {
 		addr = maybeV4
 	}
-	if len(cidrStr) > 0 {
+	if i >= 0 {
 		err = &ParseError{l18n.Sprintf("Invalid network prefix length"), s}
-		cidr, err = strconv.Atoi(cidrStr)
-		if err != nil || cidr < 0 || cidr > 128 {
+		var conversionErr error
+		cidr, conversionErr = strconv.Atoi(cidrStr)
+		if conversionErr != nil || cidr < 0 || cidr > 128 {
 			return
 		}
 		if cidr > 32 && maybeV4 != nil {
@@ -158,18 +159,14 @@ func parseUint32(value, name string) (uint32, error) {
 	return uint32(m), nil
 }
 
-func parsePersistentKeepalive(s string) (uint16, error) {
-	if s == "off" {
-		return 0, nil
+func parsePersistentKeepalive(s string) (string, error) {
+	if strings.EqualFold(s, "off") {
+		return "0", nil
 	}
-	m, err := strconv.Atoi(s)
-	if err != nil {
-		return 0, err
+	if _, _, err := ParseAWGRange(s, 16); err != nil {
+		return "", fmt.Errorf("invalid persistent keepalive: %w", err)
 	}
-	if m < 0 || m > 65535 {
-		return 0, &ParseError{l18n.Sprintf("Invalid persistent keepalive"), s}
-	}
-	return uint16(m), nil
+	return s, nil
 }
 
 func parseTableOff(s string) (bool, error) {
@@ -264,6 +261,7 @@ func FromWgQuick(s string, name string) (*Config, error) {
 		}
 		if lineLower == "[interface]" {
 			conf.maybeAddPeer(peer)
+			peer = nil
 			parserState = inInterfaceSection
 			continue
 		}
@@ -369,6 +367,28 @@ func FromWgQuick(s string, name string) (*Config, error) {
 					conf.Interface.IPackets = make(map[string]string)
 				}
 				conf.Interface.IPackets[key] = val
+			case "headerprotectionkey":
+				k, err := parseKeyBase64(val)
+				if err != nil {
+					return nil, fmt.Errorf("invalid HeaderProtectionKey (expected a 32-byte base64 key)")
+				}
+				conf.Interface.HeaderProtectionKey = *k
+			case "contentpaddingaddition":
+				conf.Interface.ContentPaddingAddition = val
+			case "rekeyaftertime":
+				conf.Interface.RekeyAfterTime = val
+			case "rekeytimeout":
+				conf.Interface.RekeyTimeout = val
+			case "rejectaftertime":
+				conf.Interface.RejectAfterTime = val
+			case "keepalivetimeout":
+				conf.Interface.KeepaliveTimeout = val
+			case "maxhandshakeattempts":
+				conf.Interface.MaxHandshakeAttempts = val
+			case "randomtrailers":
+				conf.Interface.RandomTrailers = val
+			case "disablecookies":
+				conf.Interface.DisableCookies = val
 			case "mtu":
 				m, err := parseMTU(val)
 				if err != nil {
@@ -471,6 +491,9 @@ func FromWgQuick(s string, name string) (*Config, error) {
 		}
 	}
 
+	if err := conf.ValidateAWG(); err != nil {
+		return nil, err
+	}
 	return &conf, nil
 }
 
@@ -517,6 +540,15 @@ func FromUAPI(reader io.Reader, existingConfig *Config) (*Config, error) {
 			UnderloadPacketMagicHeader: existingConfig.Interface.UnderloadPacketMagicHeader,
 			TransportPacketMagicHeader: existingConfig.Interface.TransportPacketMagicHeader,
 			IPackets:                   existingConfig.Interface.IPackets,
+			HeaderProtectionKey:        existingConfig.Interface.HeaderProtectionKey,
+			ContentPaddingAddition:     existingConfig.Interface.ContentPaddingAddition,
+			RekeyAfterTime:             existingConfig.Interface.RekeyAfterTime,
+			RekeyTimeout:               existingConfig.Interface.RekeyTimeout,
+			RejectAfterTime:            existingConfig.Interface.RejectAfterTime,
+			KeepaliveTimeout:           existingConfig.Interface.KeepaliveTimeout,
+			MaxHandshakeAttempts:       existingConfig.Interface.MaxHandshakeAttempts,
+			RandomTrailers:             existingConfig.Interface.RandomTrailers,
+			DisableCookies:             existingConfig.Interface.DisableCookies,
 		},
 	}
 	var peer *Peer
@@ -634,6 +666,28 @@ func FromUAPI(reader io.Reader, existingConfig *Config) (*Config, error) {
 					conf.Interface.IPackets = make(map[string]string)
 				}
 				conf.Interface.IPackets[key] = val
+			case "header_protection_key":
+				k, err := parseKeyHex(val)
+				if err != nil {
+					return nil, fmt.Errorf("invalid HeaderProtectionKey")
+				}
+				conf.Interface.HeaderProtectionKey = *k
+			case "content_padding_addition":
+				conf.Interface.ContentPaddingAddition = val
+			case "rekey_after_time":
+				conf.Interface.RekeyAfterTime = val
+			case "rekey_timeout":
+				conf.Interface.RekeyTimeout = val
+			case "reject_after_time":
+				conf.Interface.RejectAfterTime = val
+			case "keepalive_timeout":
+				conf.Interface.KeepaliveTimeout = val
+			case "max_handshake_attempts":
+				conf.Interface.MaxHandshakeAttempts = val
+			case "random_trailers":
+				conf.Interface.RandomTrailers = val
+			case "disable_cookies":
+				conf.Interface.DisableCookies = val
 			case "fwmark":
 				// Ignored for now.
 

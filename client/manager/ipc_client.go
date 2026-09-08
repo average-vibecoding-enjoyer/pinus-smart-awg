@@ -57,6 +57,8 @@ const (
 	UpdateMethodType
 	SmartStartMethodType
 	SmartStopMethodType
+	ConnectionSnapshotMethodType
+	ProbeConnectionMethodType
 )
 
 var (
@@ -67,6 +69,18 @@ var (
 
 type TunnelChangeCallback struct {
 	cb func(tunnel *Tunnel, state, globalState TunnelState, err error)
+}
+
+var callbackMutex sync.RWMutex
+
+func snapshotCallbacks[T comparable](callbacks map[T]bool) []T {
+	callbackMutex.RLock()
+	defer callbackMutex.RUnlock()
+	result := make([]T, 0, len(callbacks))
+	for cb := range callbacks {
+		result = append(result, cb)
+	}
+	return result
 }
 
 var tunnelChangeCallbacks = make(map[*TunnelChangeCallback]bool)
@@ -136,15 +150,15 @@ func InitializeIPCClient(reader, writer, events *os.File) {
 					continue
 				}
 				t := &Tunnel{tunnel}
-				for cb := range tunnelChangeCallbacks {
+				for _, cb := range snapshotCallbacks(tunnelChangeCallbacks) {
 					cb.cb(t, state, globalState, retErr)
 				}
 			case TunnelsChangeNotificationType:
-				for cb := range tunnelsChangeCallbacks {
+				for _, cb := range snapshotCallbacks(tunnelsChangeCallbacks) {
 					cb.cb()
 				}
 			case ManagerStoppingNotificationType:
-				for cb := range managerStoppingCallbacks {
+				for _, cb := range snapshotCallbacks(managerStoppingCallbacks) {
 					cb.cb()
 				}
 			case UpdateFoundNotificationType:
@@ -153,7 +167,7 @@ func InitializeIPCClient(reader, writer, events *os.File) {
 				if err != nil {
 					continue
 				}
-				for cb := range updateFoundCallbacks {
+				for _, cb := range snapshotCallbacks(updateFoundCallbacks) {
 					cb.cb(state)
 				}
 			case UpdateProgressNotificationType:
@@ -182,7 +196,7 @@ func InitializeIPCClient(reader, writer, events *os.File) {
 				if err != nil {
 					continue
 				}
-				for cb := range updateProgressCallbacks {
+				for _, cb := range snapshotCallbacks(updateProgressCallbacks) {
 					cb.cb(dp)
 				}
 			}
@@ -467,50 +481,70 @@ func IPCClientSmartStop() (err error) {
 
 func IPCClientRegisterTunnelChange(cb func(tunnel *Tunnel, state, globalState TunnelState, err error)) *TunnelChangeCallback {
 	s := &TunnelChangeCallback{cb}
+	callbackMutex.Lock()
 	tunnelChangeCallbacks[s] = true
+	callbackMutex.Unlock()
 	return s
 }
 
 func (cb *TunnelChangeCallback) Unregister() {
+	callbackMutex.Lock()
 	delete(tunnelChangeCallbacks, cb)
+	callbackMutex.Unlock()
 }
 
 func IPCClientRegisterTunnelsChange(cb func()) *TunnelsChangeCallback {
 	s := &TunnelsChangeCallback{cb}
+	callbackMutex.Lock()
 	tunnelsChangeCallbacks[s] = true
+	callbackMutex.Unlock()
 	return s
 }
 
 func (cb *TunnelsChangeCallback) Unregister() {
+	callbackMutex.Lock()
 	delete(tunnelsChangeCallbacks, cb)
+	callbackMutex.Unlock()
 }
 
 func IPCClientRegisterManagerStopping(cb func()) *ManagerStoppingCallback {
 	s := &ManagerStoppingCallback{cb}
+	callbackMutex.Lock()
 	managerStoppingCallbacks[s] = true
+	callbackMutex.Unlock()
 	return s
 }
 
 func (cb *ManagerStoppingCallback) Unregister() {
+	callbackMutex.Lock()
 	delete(managerStoppingCallbacks, cb)
+	callbackMutex.Unlock()
 }
 
 func IPCClientRegisterUpdateFound(cb func(updateState UpdateState)) *UpdateFoundCallback {
 	s := &UpdateFoundCallback{cb}
+	callbackMutex.Lock()
 	updateFoundCallbacks[s] = true
+	callbackMutex.Unlock()
 	return s
 }
 
 func (cb *UpdateFoundCallback) Unregister() {
+	callbackMutex.Lock()
 	delete(updateFoundCallbacks, cb)
+	callbackMutex.Unlock()
 }
 
 func IPCClientRegisterUpdateProgress(cb func(dp updater.DownloadProgress)) *UpdateProgressCallback {
 	s := &UpdateProgressCallback{cb}
+	callbackMutex.Lock()
 	updateProgressCallbacks[s] = true
+	callbackMutex.Unlock()
 	return s
 }
 
 func (cb *UpdateProgressCallback) Unregister() {
+	callbackMutex.Lock()
 	delete(updateProgressCallbacks, cb)
+	callbackMutex.Unlock()
 }

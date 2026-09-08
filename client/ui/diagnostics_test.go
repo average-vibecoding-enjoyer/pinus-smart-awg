@@ -13,10 +13,10 @@ import (
 )
 
 func TestNetworkSupportTextExplainsLeakProtection(t *testing.T) {
-	if text := networkSupportText(smart.ProfileNetworkSupport{IPv4: true}); !strings.Contains(text, "IPv6 закрыт") {
+	if text := networkSupportText(smart.ProfileNetworkSupport{IPv4: true}); !strings.Contains(text, "IPv4") || strings.Contains(text, "без утечки") {
 		t.Fatalf("unexpected IPv4-only text: %q", text)
 	}
-	if text := networkSupportText(smart.ProfileNetworkSupport{IPv4: true, IPv6: true}); text != "IPv4 + IPv6" {
+	if text := networkSupportText(smart.ProfileNetworkSupport{IPv4: true, IPv6: true}); !strings.Contains(text, "IPv4 + IPv6") {
 		t.Fatalf("unexpected dual-stack text: %q", text)
 	}
 }

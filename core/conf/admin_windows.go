@@ -7,7 +7,7 @@ package conf
 
 import "golang.org/x/sys/windows/registry"
 
-const adminRegKey = `Software\PinusSmartAWGNext`
+const adminRegKey = `Software\PinusSmartAWGPreview`
 
 var adminKey registry.Key
 

@@ -14,10 +14,11 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/amnezia-vpn/amneziawg-go/conn"
-	"github.com/amnezia-vpn/amneziawg-go/device"
-	"github.com/amnezia-vpn/amneziawg-go/ipc"
-	"github.com/amnezia-vpn/amneziawg-go/tun"
+	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
+	"github.com/amnezia-vpn/amneziawg-go/v3/device"
+	"github.com/amnezia-vpn/amneziawg-go/v3/ipc"
+	"github.com/amnezia-vpn/amneziawg-go/v3/ipc/namedpipe"
+	"github.com/amnezia-vpn/amneziawg-go/v3/tun"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -200,7 +201,13 @@ func (service *tunnelService) Execute(args []string, r <-chan svc.ChangeRequest,
 	dev = device.NewDevice(wintun, bind, &device.Logger{log.Printf, log.Printf})
 
 	log.Println("Setting interface configuration")
-	uapi, err = ipc.UAPIListen(config.Name)
+	pipeName, pipeErr := services.PipePathOfTunnel(config.Name)
+	if pipeErr != nil {
+		err = pipeErr
+		serviceError = services.ErrorUAPIListen
+		return
+	}
+	uapi, err = (&namedpipe.ListenConfig{SecurityDescriptor: ipc.UAPISecurityDescriptor}).Listen(pipeName)
 	if err != nil {
 		serviceError = services.ErrorUAPIListen
 		return
@@ -221,7 +228,7 @@ func (service *tunnelService) Execute(args []string, r <-chan svc.ChangeRequest,
 		for {
 			conn, err := uapi.Accept()
 			if err != nil {
-				continue
+				return
 			}
 			go dev.IpcHandle(conn)
 		}

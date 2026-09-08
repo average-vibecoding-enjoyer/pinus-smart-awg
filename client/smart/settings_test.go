@@ -27,7 +27,7 @@ H1 = 2881071079
 H2 = 4232111507
 H3 = 2348639460
 H4 = 96722292
-I1 = 0000000000000000000000000000000000000000000000000000000000000000
+I1 = <b 0x0000000000000000000000000000000000000000000000000000000000000000>
 
 [Peer]
 PublicKey = xTIBA5rboUvnH4htodjb6e697QjLERt1NAB4mZqp8Dg=
@@ -227,13 +227,13 @@ func TestBuildConfigSelectedMode(t *testing.T) {
 	if route["final"] != "direct" {
 		t.Fatalf("final = %v, want direct", route["final"])
 	}
-	processRule := findRule(t, routeRules(t, route), "process_name")
+	processRule := findRuleContaining(t, routeRules(t, route), "process_name", "Discord.exe")
 	if processRule["outbound"] != "awg-out" {
 		t.Fatalf("process outbound = %v", processRule["outbound"])
 	}
 	root := decodeRoot(t, data)
 	endpoint := root["endpoints"].([]any)[0].(map[string]any)
-	if endpoint["s4"] != float64(8) || endpoint["i1"] != "0000000000000000000000000000000000000000000000000000000000000000" {
+	if endpoint["s4"] != float64(8) || endpoint["i1"] != "<b 0x0000000000000000000000000000000000000000000000000000000000000000>" {
 		t.Fatalf("AWG obfuscation parameters were not preserved: s4=%v i1=%v", endpoint["s4"], endpoint["i1"])
 	}
 	dns := root["dns"].(map[string]any)
@@ -286,7 +286,7 @@ func TestServiceRuleIncludesExactSuffixRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	domainRule := findRule(t, routeRules(t, decodeRoute(t, data)), "domain")
+	domainRule := findRuleContaining(t, routeRules(t, decodeRoute(t, data)), "domain", "youtubei.googleapis.com")
 	domains, _ := domainRule["domain"].([]any)
 	found := false
 	for _, domain := range domains {

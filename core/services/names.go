@@ -15,12 +15,12 @@ func ServiceNameOfTunnel(tunnelName string) (string, error) {
 	if !conf.TunnelNameIsValid(tunnelName) {
 		return "", errors.New("Tunnel name is not valid")
 	}
-	return "PinusAWGNextTunnel$" + tunnelName, nil
+	return "PinusAWGPreviewTunnel$" + tunnelName, nil
 }
 
 func PipePathOfTunnel(tunnelName string) (string, error) {
 	if !conf.TunnelNameIsValid(tunnelName) {
 		return "", errors.New("Tunnel name is not valid")
 	}
-	return `\\.\pipe\ProtectedPrefix\Administrators\PinusAWGNext\` + tunnelName, nil
+	return `\\.\pipe\ProtectedPrefix\Administrators\PinusAWGPreview\` + tunnelName, nil
 }

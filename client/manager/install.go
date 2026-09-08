@@ -22,6 +22,7 @@ import (
 
 	"github.com/amnezia-vpn/amneziawg-windows/conf"
 	"github.com/amnezia-vpn/amneziawg-windows/services"
+	"github.com/amnezia-vpn/amneziawg-windows/tunnel/firewall"
 
 	"github.com/amnezia-vpn/amneziawg-windows-client/smart"
 	"github.com/amnezia-vpn/amneziawg-windows-client/version"
@@ -29,7 +30,7 @@ import (
 
 var cachedServiceManager *mgr.Mgr
 
-const managerServiceName = "PinusAWGNextManager"
+const managerServiceName = "PinusAWGPreviewManager"
 
 const managerRecoveryResetSeconds = 24 * 60 * 60
 
@@ -289,12 +290,18 @@ func InstallManagerFrom(path string) error {
 		if err != nil {
 			return err
 		}
+		deleteDeadline := time.Now().Add(15 * time.Second)
 		for {
+			if time.Now().After(deleteDeadline) {
+				return errors.New("timed out waiting for deleted tunnel service")
+			}
 			service, err = m.OpenService(serviceName)
 			if err != nil {
 				break
 			}
-			service.Close()
+			if service != nil {
+				service.Close()
+			}
 			time.Sleep(time.Second / 3)
 		}
 	}
@@ -330,7 +337,7 @@ func InstallManagerFrom(path string) error {
 }
 
 func UninstallManager() error {
-	desiredErr := clearSmartDesired()
+	desiredErr := errors.Join(clearSmartDesired(), firewall.ClearPreviewGuard())
 	m, err := serviceManager()
 	if err != nil {
 		return errors.Join(desiredErr, err)
@@ -411,7 +418,7 @@ func removeOtherInstalledVersions() error {
 // UninstallAllServices removes every service owned by this application. User
 // profiles remain in the protected data directory so reinstalling is safe.
 func UninstallAllServices() error {
-	desiredErr := clearSmartDesired()
+	desiredErr := errors.Join(clearSmartDesired(), firewall.ClearPreviewGuard())
 	m, err := serviceManager()
 	if err != nil {
 		return errors.Join(desiredErr, err)
@@ -426,7 +433,7 @@ func UninstallAllServices() error {
 		uninstallErrors = append(uninstallErrors, desiredErr)
 	}
 	for _, name := range names {
-		if !strings.HasPrefix(name, "PinusAWGNextTunnel$") {
+		if !strings.HasPrefix(name, "PinusAWGPreviewTunnel$") {
 			continue
 		}
 		if err := uninstallServiceIfPresent(m, name); err != nil {
@@ -443,6 +450,9 @@ func UninstallAllServices() error {
 }
 
 func InstallTunnel(configPath string) error {
+	if err := previewConnectionPreflight(); err != nil {
+		return err
+	}
 	m, err := serviceManager()
 	if err != nil {
 		return err
@@ -481,12 +491,18 @@ func InstallTunnel(configPath string) error {
 		if err != nil && err != windows.ERROR_SERVICE_MARKED_FOR_DELETE {
 			return err
 		}
+		deleteDeadline := time.Now().Add(15 * time.Second)
 		for {
+			if time.Now().After(deleteDeadline) {
+				return errors.New("timed out waiting for deleted tunnel service")
+			}
 			service, err = m.OpenService(serviceName)
 			if err != nil && err != windows.ERROR_SERVICE_MARKED_FOR_DELETE {
 				break
 			}
-			service.Close()
+			if service != nil {
+				service.Close()
+			}
 			time.Sleep(time.Second / 3)
 		}
 	}

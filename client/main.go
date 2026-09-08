@@ -25,7 +25,6 @@ import (
 	"github.com/amnezia-vpn/amneziawg-windows-client/manager"
 	"github.com/amnezia-vpn/amneziawg-windows-client/ringlogger"
 	"github.com/amnezia-vpn/amneziawg-windows-client/ui"
-	"github.com/amnezia-vpn/amneziawg-windows-client/updater"
 )
 
 func setLogFile() {
@@ -159,14 +158,21 @@ func installManagerService(waitForUI bool) error {
 	if err := manager.VerifyInstallBundle(); err != nil {
 		return err
 	}
-	if err := manager.StopManagerForUpgrade(); err != nil {
-		return err
-	}
 	installedPath, err := manager.StageSecureInstall()
 	if err != nil {
 		return err
 	}
+	previousPath, err := manager.InstalledManagerExecutable()
+	if err != nil {
+		return err
+	}
+	if err := manager.StopManagerForUpgrade(); err != nil {
+		return err
+	}
 	if err := manager.InstallManagerFrom(installedPath); err != nil {
+		if previousPath != "" {
+			return errors.Join(err, manager.InstallManagerFrom(previousPath))
+		}
 		return err
 	}
 	if !waitForUI {
@@ -322,27 +328,14 @@ func main() {
 		}
 		return
 	case "/update":
+		fatal("Pinus Preview обновляется отдельным проверенным пакетом")
+		return
+	case "/clearpreviewprotection":
 		if len(os.Args) != 2 {
 			usage()
 		}
-		for progress := range updater.DownloadVerifyAndExecute(0) {
-			if len(progress.Activity) > 0 {
-				if progress.BytesTotal > 0 || progress.BytesDownloaded > 0 {
-					var percent float64
-					if progress.BytesTotal > 0 {
-						percent = float64(progress.BytesDownloaded) / float64(progress.BytesTotal) * 100.0
-					}
-					log.Printf("%s: %d/%d (%.2f%%)\n", progress.Activity, progress.BytesDownloaded, progress.BytesTotal, percent)
-				} else {
-					log.Println(progress.Activity)
-				}
-			}
-			if progress.Error != nil {
-				log.Printf("Error: %v\n", progress.Error)
-			}
-			if progress.Complete || progress.Error != nil {
-				return
-			}
+		if err := manager.ClearPreviewProtection(); err != nil {
+			fatal(err)
 		}
 		return
 	case "/preview":

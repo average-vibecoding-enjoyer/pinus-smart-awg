@@ -54,7 +54,7 @@ func RootDirectory(create bool) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	root = filepath.Join(root, "Pinus Smart AWG Next")
+	root = filepath.Join(root, "Pinus Smart AWG Preview")
 	if !create {
 		return filepath.Join(root, "Data"), nil
 	}

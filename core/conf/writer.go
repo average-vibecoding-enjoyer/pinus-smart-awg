@@ -10,6 +10,27 @@ import (
 	"strings"
 )
 
+// boolToUAPI converts awg-quick on/off (and 0/1/true/false) to UAPI 1/0.
+// amneziawg-go uses strconv.ParseBool and rejects "on"/"off".
+func boolToUAPI(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "on", "1", "true", "t", "yes":
+		return "1"
+	default:
+		return "0"
+	}
+}
+
+// boolFromUAPI normalizes UAPI 1/0 (or true/false) to awg-quick on/off.
+func boolFromUAPI(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "t", "on", "yes":
+		return "on"
+	default:
+		return "off"
+	}
+}
+
 func (conf *Config) ToWgQuick() string {
 	var output strings.Builder
 	output.WriteString("[Interface]\n")
@@ -64,8 +85,40 @@ func (conf *Config) ToWgQuick() string {
 		output.WriteString(fmt.Sprintf("H4 = %s\n", conf.Interface.TransportPacketMagicHeader))
 	}
 
-	for key, value := range conf.Interface.IPackets {
+	for _, key := range []string{"i1", "i2", "i3", "i4", "i5"} {
+		value := conf.Interface.IPackets[key]
+		if value == "" {
+			continue
+		}
 		output.WriteString(fmt.Sprintf("%s = %s\n", strings.ToUpper(key), value))
+	}
+
+	if !conf.Interface.HeaderProtectionKey.IsZero() {
+		output.WriteString(fmt.Sprintf("HeaderProtectionKey = %s\n", conf.Interface.HeaderProtectionKey.String()))
+	}
+	if len(conf.Interface.ContentPaddingAddition) > 0 {
+		output.WriteString(fmt.Sprintf("ContentPaddingAddition = %s\n", conf.Interface.ContentPaddingAddition))
+	}
+	if len(conf.Interface.RekeyAfterTime) > 0 {
+		output.WriteString(fmt.Sprintf("RekeyAfterTime = %s\n", conf.Interface.RekeyAfterTime))
+	}
+	if len(conf.Interface.RekeyTimeout) > 0 {
+		output.WriteString(fmt.Sprintf("RekeyTimeout = %s\n", conf.Interface.RekeyTimeout))
+	}
+	if len(conf.Interface.RejectAfterTime) > 0 {
+		output.WriteString(fmt.Sprintf("RejectAfterTime = %s\n", conf.Interface.RejectAfterTime))
+	}
+	if len(conf.Interface.KeepaliveTimeout) > 0 {
+		output.WriteString(fmt.Sprintf("KeepaliveTimeout = %s\n", conf.Interface.KeepaliveTimeout))
+	}
+	if len(conf.Interface.MaxHandshakeAttempts) > 0 {
+		output.WriteString(fmt.Sprintf("MaxHandshakeAttempts = %s\n", conf.Interface.MaxHandshakeAttempts))
+	}
+	if len(conf.Interface.RandomTrailers) > 0 {
+		output.WriteString(fmt.Sprintf("RandomTrailers = %s\n", conf.Interface.RandomTrailers))
+	}
+	if len(conf.Interface.DisableCookies) > 0 {
+		output.WriteString(fmt.Sprintf("DisableCookies = %s\n", conf.Interface.DisableCookies))
 	}
 
 	if len(conf.Interface.Addresses) > 0 {
@@ -126,14 +179,17 @@ func (conf *Config) ToWgQuick() string {
 			output.WriteString(fmt.Sprintf("Endpoint = %s\n", peer.Endpoint.String()))
 		}
 
-		if peer.PersistentKeepalive > 0 {
-			output.WriteString(fmt.Sprintf("PersistentKeepalive = %d\n", peer.PersistentKeepalive))
+		if len(peer.PersistentKeepalive) > 0 && peer.PersistentKeepalive != "0" && peer.PersistentKeepalive != "off" {
+			output.WriteString(fmt.Sprintf("PersistentKeepalive = %s\n", peer.PersistentKeepalive))
 		}
 	}
 	return output.String()
 }
 
 func (conf *Config) ToUAPI() (uapi string, dnsErr error) {
+	if err := conf.ValidateAWG(); err != nil {
+		return "", err
+	}
 	var output strings.Builder
 	output.WriteString(fmt.Sprintf("private_key=%s\n", conf.Interface.PrivateKey.HexString()))
 
@@ -185,8 +241,40 @@ func (conf *Config) ToUAPI() (uapi string, dnsErr error) {
 		output.WriteString(fmt.Sprintf("h4=%s\n", conf.Interface.TransportPacketMagicHeader))
 	}
 
-	for key, value := range conf.Interface.IPackets {
+	for _, key := range []string{"i1", "i2", "i3", "i4", "i5"} {
+		value := conf.Interface.IPackets[key]
+		if value == "" {
+			continue
+		}
 		output.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+	}
+
+	if !conf.Interface.HeaderProtectionKey.IsZero() {
+		output.WriteString(fmt.Sprintf("header_protection_key=%s\n", conf.Interface.HeaderProtectionKey.HexString()))
+	}
+	if len(conf.Interface.ContentPaddingAddition) > 0 {
+		output.WriteString(fmt.Sprintf("content_padding_addition=%s\n", conf.Interface.ContentPaddingAddition))
+	}
+	if len(conf.Interface.RekeyAfterTime) > 0 {
+		output.WriteString(fmt.Sprintf("rekey_after_time=%s\n", conf.Interface.RekeyAfterTime))
+	}
+	if len(conf.Interface.RekeyTimeout) > 0 {
+		output.WriteString(fmt.Sprintf("rekey_timeout=%s\n", conf.Interface.RekeyTimeout))
+	}
+	if len(conf.Interface.RejectAfterTime) > 0 {
+		output.WriteString(fmt.Sprintf("reject_after_time=%s\n", conf.Interface.RejectAfterTime))
+	}
+	if len(conf.Interface.KeepaliveTimeout) > 0 {
+		output.WriteString(fmt.Sprintf("keepalive_timeout=%s\n", conf.Interface.KeepaliveTimeout))
+	}
+	if len(conf.Interface.MaxHandshakeAttempts) > 0 {
+		output.WriteString(fmt.Sprintf("max_handshake_attempts=%s\n", conf.Interface.MaxHandshakeAttempts))
+	}
+	if len(conf.Interface.RandomTrailers) > 0 {
+		output.WriteString(fmt.Sprintf("random_trailers=%s\n", boolToUAPI(conf.Interface.RandomTrailers)))
+	}
+	if len(conf.Interface.DisableCookies) > 0 {
+		output.WriteString(fmt.Sprintf("disable_cookies=%s\n", boolToUAPI(conf.Interface.DisableCookies)))
 	}
 
 	if len(conf.Peers) > 0 {
@@ -210,7 +298,11 @@ func (conf *Config) ToUAPI() (uapi string, dnsErr error) {
 			output.WriteString(fmt.Sprintf("endpoint=%s\n", resolvedEndpoint.String()))
 		}
 
-		output.WriteString(fmt.Sprintf("persistent_keepalive_interval=%d\n", peer.PersistentKeepalive))
+		keepalive := peer.PersistentKeepalive
+		if keepalive == "" || keepalive == "off" {
+			keepalive = "0"
+		}
+		output.WriteString(fmt.Sprintf("persistent_keepalive_interval=%s\n", keepalive))
 
 		if len(peer.AllowedIPs) > 0 {
 			output.WriteString("replace_allowed_ips=true\n")

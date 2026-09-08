@@ -229,7 +229,7 @@ func (supervisor *smartRecoverySupervisor) run() {
 				continue
 			}
 			unhealthyCount++
-			if unhealthyCount >= supervisor.config.unhealthyPolls {
+			if unhealthyCount >= supervisor.config.unhealthyPolls && !hasPending {
 				schedule(smartRecoveryRequest{reason: "health check failed"})
 				unhealthyCount = 0
 			}
@@ -438,7 +438,15 @@ func recoverSmartDesired(force bool, reason string) error {
 	}
 	log.Printf("[%s] recovering smart routing after %s", state.TunnelName, reason)
 	service := &ManagerService{}
-	return service.smartStartLocked(state.TunnelName, state.Settings, false)
+	return recoverWithFallbacks(state.TunnelName, state.Settings, func(name string) error {
+		if err := service.smartStartLocked(name, state.Settings, false); err != nil {
+			return err
+		}
+		if name != state.TunnelName {
+			return saveSmartDesired(name, state.Settings)
+		}
+		return nil
+	})
 }
 
 func startSmartRecoverySupervisor() {

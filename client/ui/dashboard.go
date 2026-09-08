@@ -67,6 +67,10 @@ type Dashboard struct {
 	selected        int
 	activeName      string
 	settings        smart.RoutingSettings
+	preferences     smart.UserPreferences
+	pendingProfiles map[string]bool
+	focusID         string
+	serviceScroll   int
 	globalState     manager.TunnelState
 	connectedAt     time.Time
 	lastError       string
@@ -107,6 +111,7 @@ func NewDashboard(parent walk.Container, preview bool) (*Dashboard, error) {
 		presetContext: presetContext,
 		presetCancel:  presetCancel,
 		presetUpdate:  make(chan struct{}, 1),
+		preferences:   smart.LoadPreferences(), pendingProfiles: make(map[string]bool),
 	}
 	widget, err := walk.NewCustomWidgetPixels(parent, win.WS_TABSTOP, dashboard.paint)
 	if err != nil {
@@ -114,6 +119,7 @@ func NewDashboard(parent walk.Container, preview bool) (*Dashboard, error) {
 		return nil, err
 	}
 	dashboard.CustomWidget = widget
+	_ = walk.InitWrapperWindow(dashboard)
 	// GDI+ must draw against the real widget HDC. Walk's partial-size memory
 	// buffer applies a viewport transform that GDI+ does not consistently honor.
 	dashboard.SetPaintMode(walk.PaintNoErase)
@@ -236,7 +242,7 @@ func (dashboard *Dashboard) startPresetUpdateLoop() {
 
 func (dashboard *Dashboard) startAnimationLoop() {
 	go func() {
-		ticker := time.NewTicker(time.Second / 30)
+		ticker := time.NewTicker(time.Second / 10)
 		defer ticker.Stop()
 		started := time.Now()
 		tick := 0
@@ -251,8 +257,8 @@ func (dashboard *Dashboard) startAnimationLoop() {
 				tick++
 				dashboard.Synchronize(func() {
 					dashboard.animation = time.Since(started).Seconds()
-					animatedState := atomic.LoadUint32(&dashboard.operation) != 0 || dashboard.globalState == manager.TunnelStarted || dashboard.globalState == manager.TunnelStarting || dashboard.globalState == manager.TunnelStopping
-					if dashboard.page == pageHome && animatedState || tick%30 == 0 {
+					animatedState := atomic.LoadUint32(&dashboard.operation) != 0 || dashboard.globalState == manager.TunnelStarting || dashboard.globalState == manager.TunnelStopping
+					if dashboard.page == pageHome && animatedState || tick%10 == 0 {
 						_ = dashboard.Invalidate()
 					}
 				})
@@ -311,7 +317,7 @@ func (dashboard *Dashboard) loadProfiles() {
 	dashboard.profiles = profiles
 	dashboard.activeName = activeName
 	dashboard.selected = -1
-	if activeName != "" {
+	if activeName != "" && !dashboard.preferences.HoldConnection {
 		selectedName = activeName
 	}
 	for i := range dashboard.profiles {
@@ -491,7 +497,12 @@ func (dashboard *Dashboard) onMouseUp(x, y int, button walk.MouseButton) {
 
 func (dashboard *Dashboard) onMouseWheel(_, _ int, button walk.MouseButton) {
 	delta := walk.MouseWheelEventDelta(button)
-	if dashboard.page == pageProfiles {
+	if dashboard.page == pageRouting {
+		dashboard.serviceScroll -= delta / 120
+		if dashboard.serviceScroll < 0 {
+			dashboard.serviceScroll = 0
+		}
+	} else if dashboard.page == pageProfiles {
 		dashboard.profileScroll -= delta / 120
 		if dashboard.profileScroll < 0 {
 			dashboard.profileScroll = 0
@@ -506,11 +517,19 @@ func (dashboard *Dashboard) onMouseWheel(_, _ int, button walk.MouseButton) {
 }
 
 func (dashboard *Dashboard) onKeyDown(key walk.Key) {
+	if key == walk.KeyF && win.GetKeyState(win.VK_CONTROL) < 0 {
+		dashboard.searchDialog()
+		return
+	}
 	switch key {
 	case walk.KeyEscape:
 		dashboard.ShowPage(pageHome)
-	case walk.KeySpace:
-		if dashboard.page == pageHome {
+	case walk.KeyTab:
+		dashboard.focusNext(win.GetKeyState(win.VK_SHIFT) < 0)
+	case walk.KeyReturn, walk.KeySpace:
+		if dashboard.focusID != "" {
+			dashboard.activate(dashboard.focusID)
+		} else if dashboard.page == pageHome {
 			dashboard.toggleConnection()
 		}
 	case walk.KeyF5:
@@ -550,6 +569,8 @@ func (dashboard *Dashboard) activate(id string) {
 		dashboard.ShowPage(pageRules)
 	case "nav:profiles", "home:profile":
 		dashboard.ShowPage(pageProfiles)
+	case "nav:tools":
+		dashboard.showTools()
 	case "nav:diagnostics":
 		dashboard.ShowPage(pageDiagnostics)
 	case "power":
@@ -621,7 +642,7 @@ func (dashboard *Dashboard) toggleConnection() {
 }
 
 func hasSelectedVPNRoute(settings smart.RoutingSettings) bool {
-	if len(settings.SelectedApps) > 0 {
+	if len(settings.SelectedApps) > 0 || (settings.Mode == smart.ModeSelected && (settings.ServiceUsesVPN(smart.VKServiceID) || settings.ServiceUsesVPN(smart.RussianServiceID))) {
 		return true
 	}
 	for _, rule := range settings.CustomRules {
@@ -641,6 +662,17 @@ func serviceSelectionEnabled(mode smart.Mode) bool {
 }
 
 func cloneRoutingSettings(settings smart.RoutingSettings) smart.RoutingSettings {
+	settings.CatalogEnvelope = append([]byte(nil), settings.CatalogEnvelope...)
+	settings.FallbackProfiles = append([]string(nil), settings.FallbackProfiles...)
+	routes := map[smart.Mode]map[string]bool{}
+	for mode, values := range settings.ServiceRoutes {
+		copyValues := map[string]bool{}
+		for key, value := range values {
+			copyValues[key] = value
+		}
+		routes[mode] = copyValues
+	}
+	settings.ServiceRoutes = routes
 	settings.SelectedApps = append([]string(nil), settings.SelectedApps...)
 	settings.CustomRules = append([]smart.CustomRule(nil), settings.CustomRules...)
 	return settings
@@ -682,6 +714,7 @@ func (dashboard *Dashboard) startSelectedProfileWithRollback(rollbackSettings *s
 				atomic.StoreUint32(&dashboard.operation, 0)
 				dashboard.globalState = manager.TunnelStarted
 				dashboard.activeName = name
+				delete(dashboard.pendingProfiles, name)
 				dashboard.connectedAt = time.Now()
 				for i := range dashboard.profiles {
 					if dashboard.profiles[i].Tunnel.Name == name {
@@ -725,6 +758,7 @@ func (dashboard *Dashboard) startSelectedProfileWithRollback(rollbackSettings *s
 			} else {
 				dashboard.globalState = manager.TunnelStarted
 				dashboard.activeName = name
+				delete(dashboard.pendingProfiles, name)
 				dashboard.connectedAt = time.Now()
 			}
 			_ = dashboard.Invalidate()
@@ -794,6 +828,14 @@ func (dashboard *Dashboard) stopConnection() {
 
 func (dashboard *Dashboard) saveSettings(settings smart.RoutingSettings, restartActive bool) {
 	previousSettings := cloneRoutingSettings(dashboard.settings)
+	var err error
+	if len(settings.CatalogEnvelope) == 0 {
+		settings, err = smart.CaptureCatalog(settings)
+		if err != nil {
+			dashboard.lastError = err.Error()
+			return
+		}
+	}
 	normalized, err := settings.Normalized()
 	if err != nil {
 		dashboard.lastError = err.Error()
@@ -815,6 +857,11 @@ func (dashboard *Dashboard) saveSettings(settings smart.RoutingSettings, restart
 	dashboard.lastError = ""
 	_ = dashboard.Invalidate()
 	if restartActive && dashboard.globalState == manager.TunnelStarted && dashboard.activeName == profile.Tunnel.Name {
+		if dashboard.preferences.HoldConnection {
+			dashboard.pendingProfiles[profile.Tunnel.Name] = true
+			dashboard.lastError = "Настройки сохранены. Текущее подключение зафиксировано; примените изменения в «Управлении»."
+			return
+		}
 		if shouldDisconnectForRoutingSettings(normalized) {
 			dashboard.lastError = "VPN отключён: в режиме «Только выбранное» не осталось сервисов или правил через VPN."
 			dashboard.stopConnection()
@@ -847,10 +894,14 @@ func containsString(values []string, target string) bool {
 }
 
 func (dashboard *Dashboard) toggleService(id string) {
-	if dashboard.operationBusy() || dashboard.selectedProfile() == nil || !serviceSelectionEnabled(dashboard.settings.Mode) {
+	if dashboard.operationBusy() || dashboard.selectedProfile() == nil || (!serviceSelectionEnabled(dashboard.settings.Mode) && !smart.IsRegionalService(id)) {
 		return
 	}
 	settings := dashboard.settings
+	if smart.IsRegionalService(id) {
+		dashboard.saveSettings(settings.WithServiceVPN(id, !settings.ServiceUsesVPN(id)), true)
+		return
+	}
 	settings.SelectedApps = append([]string(nil), dashboard.settings.SelectedApps...)
 	if containsString(settings.SelectedApps, id) {
 		filtered := settings.SelectedApps[:0]
@@ -921,6 +972,7 @@ func (dashboard *Dashboard) selectProfileWithActivation(index int, switchActive 
 	if index < 0 || index >= len(dashboard.profiles) || dashboard.operationBusy() {
 		return
 	}
+	switchActive = switchActive && !dashboard.preferences.HoldConnection
 	wasConnected := dashboard.globalState == manager.TunnelStarted && dashboard.activeName != ""
 	profile := dashboard.profiles[index]
 	settings := smart.DefaultSettings()
@@ -975,6 +1027,24 @@ func (dashboard *Dashboard) editProfile(index int) {
 	if config == nil {
 		return
 	}
+	dashboard.applyProfileEdit(index, config, false)
+}
+
+func (dashboard *Dashboard) applyProfileEdit(index int, config *conf.Config, force bool) {
+	if index < 0 || index >= len(dashboard.profiles) || dashboard.operationBusy() {
+		return
+	}
+	profile := dashboard.profiles[index]
+	if !force && dashboard.preferences.HoldConnection && dashboard.activeName == profile.Tunnel.Name {
+		if err := smart.SavePendingProfile(profile.Tunnel.Name, config); err != nil {
+			dashboard.lastError = err.Error()
+		} else {
+			dashboard.pendingProfiles[profile.Tunnel.Name] = true
+			dashboard.lastError = "Редактирование сохранено отдельно. Нажмите «Применить» в Управлении, когда можно переподключиться."
+		}
+		_ = dashboard.Invalidate()
+		return
+	}
 	originalConfig, err := profile.Tunnel.StoredConfig()
 	if err != nil {
 		dashboard.lastError = err.Error()
@@ -1010,6 +1080,9 @@ func (dashboard *Dashboard) editProfile(index int) {
 				newTunnel = restored
 			}
 		}
+		if operationErr == nil {
+			_ = smart.DeletePendingProfile(profile.Tunnel.Name)
+		}
 		if newTunnel.Name != "" {
 			if settingsErr := moveProfileSettings(profile.Tunnel.Name, newTunnel.Name, oldSettings); settingsErr != nil {
 				operationErr = errors.Join(operationErr, settingsErr)
@@ -1023,7 +1096,7 @@ func (dashboard *Dashboard) editProfile(index int) {
 			dashboard.loadProfiles()
 			for i := range dashboard.profiles {
 				if dashboard.profiles[i].Tunnel.Name == newTunnel.Name {
-					dashboard.selected = i
+					dashboard.selectProfileWithActivation(i, false)
 					break
 				}
 			}
@@ -1044,6 +1117,11 @@ func (dashboard *Dashboard) deleteProfile(index int) {
 		return
 	}
 	profile := dashboard.profiles[index]
+	if dashboard.preferences.HoldConnection && dashboard.activeName == profile.Tunnel.Name {
+		dashboard.lastError = "Активное подключение зафиксировано. Сначала отключите его явной кнопкой."
+		_ = dashboard.Invalidate()
+		return
+	}
 	if walk.MsgBox(dashboard.Form(), "Удалить профиль", fmt.Sprintf("Удалить VPN-профиль «%s»? Это действие нельзя отменить.", profile.Tunnel.Name), walk.MsgBoxYesNo|walk.MsgBoxIconWarning) != walk.DlgCmdYes {
 		return
 	}
@@ -1082,55 +1160,57 @@ func readProfileFiles(paths []string) ([]unparsedProfile, error) {
 	var lastErr error
 	for _, path := range paths {
 		if len(profiles) >= maxImportedProfileCount {
+			lastErr = errors.Join(lastErr, errors.New("достигнут лимит 100 профилей; остальные файлы пропущены"))
 			break
 		}
 		switch strings.ToLower(filepath.Ext(path)) {
 		case ".conf":
 			info, err := os.Stat(path)
 			if err != nil {
-				lastErr = err
+				lastErr = errors.Join(lastErr, err)
 				continue
 			}
 			if info.Size() > maxImportedProfileSize {
-				lastErr = fmt.Errorf("профиль %s больше 1 МБ", filepath.Base(path))
+				lastErr = errors.Join(lastErr, fmt.Errorf("профиль %s больше 1 МБ", filepath.Base(path)))
 				continue
 			}
 			data, err := os.ReadFile(path)
 			if err != nil {
-				lastErr = err
+				lastErr = errors.Join(lastErr, err)
 				continue
 			}
 			profiles = append(profiles, unparsedProfile{Name: strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)), Config: string(data)})
 		case ".zip":
 			archive, err := zip.OpenReader(path)
 			if err != nil {
-				lastErr = err
+				lastErr = errors.Join(lastErr, err)
 				continue
 			}
 			for _, file := range archive.File {
 				if len(profiles) >= maxImportedProfileCount {
+					lastErr = errors.Join(lastErr, errors.New("достигнут лимит 100 профилей; остальные файлы пропущены"))
 					break
 				}
 				if strings.ToLower(filepath.Ext(file.Name)) != ".conf" {
 					continue
 				}
 				if file.UncompressedSize64 > maxImportedProfileSize {
-					lastErr = fmt.Errorf("профиль %s больше 1 МБ", filepath.Base(file.Name))
+					lastErr = errors.Join(lastErr, fmt.Errorf("профиль %s больше 1 МБ", filepath.Base(file.Name)))
 					continue
 				}
 				reader, err := file.Open()
 				if err != nil {
-					lastErr = err
+					lastErr = errors.Join(lastErr, err)
 					continue
 				}
 				data, readErr := io.ReadAll(io.LimitReader(reader, maxImportedProfileSize+1))
 				reader.Close()
 				if readErr != nil {
-					lastErr = readErr
+					lastErr = errors.Join(lastErr, readErr)
 					continue
 				}
 				if len(data) > maxImportedProfileSize {
-					lastErr = fmt.Errorf("профиль %s больше 1 МБ", filepath.Base(file.Name))
+					lastErr = errors.Join(lastErr, fmt.Errorf("профиль %s больше 1 МБ", filepath.Base(file.Name)))
 					continue
 				}
 				profiles = append(profiles, unparsedProfile{Name: strings.TrimSuffix(filepath.Base(file.Name), filepath.Ext(file.Name)), Config: string(data)})
@@ -1144,7 +1224,7 @@ func readProfileFiles(paths []string) ([]unparsedProfile, error) {
 		}
 		return nil, lastErr
 	}
-	return profiles, nil
+	return profiles, lastErr
 }
 
 func (dashboard *Dashboard) ImportProfiles() {
@@ -1160,7 +1240,7 @@ func (dashboard *Dashboard) ImportProfiles() {
 		return
 	}
 	profiles, err := readProfileFiles(dialog.FilePaths)
-	if err != nil {
+	if err != nil && len(profiles) == 0 {
 		showErrorCustom(dashboard.Form(), "Не удалось импортировать профиль", err.Error())
 		return
 	}
@@ -1171,16 +1251,16 @@ func (dashboard *Dashboard) ImportProfiles() {
 	go func() {
 		created := 0
 		createdNames := make([]string, 0, len(profiles))
-		var lastErr error
+		lastErr := err
 		for _, item := range profiles {
 			config, parseErr := conf.FromWgQuickWithUnknownEncoding(item.Config, item.Name)
 			if parseErr != nil {
-				lastErr = parseErr
+				lastErr = errors.Join(lastErr, fmt.Errorf("%s: %w", item.Name, parseErr))
 				continue
 			}
 			tunnel, createErr := manager.IPCClientNewTunnel(config)
 			if createErr != nil {
-				lastErr = createErr
+				lastErr = errors.Join(lastErr, fmt.Errorf("%s: %w", item.Name, createErr))
 				continue
 			}
 			created++
@@ -1202,7 +1282,7 @@ func (dashboard *Dashboard) ImportProfiles() {
 			} else if created > 1 || lastErr != nil {
 				message := fmt.Sprintf("Импортировано профилей: %d", created)
 				if lastErr != nil {
-					message += "\n\nПоследняя ошибка: " + lastErr.Error()
+					message += "\n\nОшибки: " + lastErr.Error()
 				}
 				walk.MsgBox(dashboard.Form(), "Импорт профилей", message, walk.MsgBoxIconInformation)
 			}
@@ -1218,29 +1298,14 @@ func (dashboard *Dashboard) openRuntimeFolder() {
 }
 
 func (dashboard *Dashboard) copyDiagnostics() {
-	profileName := "нет"
-	endpoint := "нет"
-	if profile := dashboard.selectedProfile(); profile != nil {
-		profileName = profile.Tunnel.Name
-		endpoint = profile.Endpoint
-	}
-	engine, engineErr := smart.FindEnginePath()
-	if engineErr != nil {
-		engine = engineErr.Error()
-	}
+	_, engineErr := smart.FindEnginePath()
 	presets := smart.ServiceCatalogStatus()
-	lastPresetCheck := "never"
-	if !presets.LastChecked.IsZero() {
-		lastPresetCheck = presets.LastChecked.UTC().Format(time.RFC3339)
-	}
-	text := fmt.Sprintf("Pinus Smart AWG\r\nProfile: %s\r\nEndpoint: %s\r\nRouting mode: %s\r\nEngine: %s\r\nState: %d\r\nPreset revision: %d\r\nPreset source: %s\r\nPreset last check: %s\r\nPreset error: %s\r\nLast error: %s", profileName, endpoint, dashboard.settings.Mode, engine, dashboard.globalState, presets.Revision, presets.Source, lastPresetCheck, presets.LastError, dashboard.lastError)
-	if len(dashboard.diagnostics.Checks) > 0 {
-		text += "\r\n\r\n" + dashboard.diagnostics.String()
-	}
+	text := fmt.Sprintf("Pinus Smart AWG 3.3.0 Preview\r\nSaved routing mode: %s\r\nEngine integrity OK: %t\r\nTunnel state: %d\r\nPreset revision: %d\r\nPreset error present: %t\r\nLast error present: %t", dashboard.settings.Mode, engineErr == nil, dashboard.globalState, presets.Revision, presets.LastError != "", dashboard.lastError != "")
+	text += "\r\n\r\n" + dashboard.diagnostics.ShareableString()
 	if err := walk.Clipboard().SetText(text); err != nil {
 		dashboard.lastError = err.Error()
 	} else {
-		walk.MsgBox(dashboard.Form(), "Диагностика", "Информация скопирована. Приватных ключей в ней нет.", walk.MsgBoxIconInformation)
+		walk.MsgBox(dashboard.Form(), "Диагностика", "Краткий отчёт скопирован. Имена профилей, адреса серверов, пути и тексты ошибок исключены.", walk.MsgBoxIconInformation)
 	}
 	_ = dashboard.Invalidate()
 }

@@ -53,6 +53,12 @@ func NewRinglogger(filename, tag string) (*Ringlogger, error) {
 	if err != nil {
 		return nil, err
 	}
+	success := false
+	defer func() {
+		if !success {
+			file.Close()
+		}
+	}()
 	err = file.Truncate(int64(unsafe.Sizeof(logMem{})))
 	if err != nil {
 		return nil, err
@@ -67,6 +73,7 @@ func NewRinglogger(filename, tag string) (*Ringlogger, error) {
 		return nil, err
 	}
 	rl.file = file
+	success = true
 	return rl, nil
 }
 
@@ -81,10 +88,16 @@ func NewRingloggerFromInheritedMappingHandle(handleStr, tag string) (*Ringlogger
 func newRingloggerFromMappingHandle(mappingHandle windows.Handle, tag string, access uint32) (*Ringlogger, error) {
 	view, err := windows.MapViewOfFile(mappingHandle, access, 0, 0, 0)
 	if err != nil {
+		windows.CloseHandle(mappingHandle)
 		return nil, err
 	}
 	log := (*logMem)(unsafe.Pointer(view))
 	if log.magic != magic {
+		if access&windows.FILE_MAP_WRITE == 0 {
+			windows.UnmapViewOfFile(view)
+			windows.CloseHandle(mappingHandle)
+			return nil, fmt.Errorf("invalid read-only log mapping")
+		}
 		bytes := (*[unsafe.Sizeof(logMem{})]byte)(unsafe.Pointer(log))
 		for i := range bytes {
 			bytes[i] = 0
