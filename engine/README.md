@@ -22,3 +22,9 @@ tags:
 No engine binary is committed to this repository. Every GitHub Release
 contains the corresponding upstream source archive, the exact security patch,
 its SHA-256 digest, and the GPL license.
+
+Preview 3.3.3 also adds an opt-in AWG TCP IPv4 fallback for a failed IPv6
+connect reporting network unreachable. The known hostname is resolved through
+an explicitly pinned VPN DNS transport, and the IPv4 retry uses the same AWG
+device. No direct outbound or post-connect payload retry is involved. See the
+endpoint regression tests included in the patch and the 3.3.3 update notes.

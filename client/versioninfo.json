@@ -3,13 +3,13 @@
     "FileVersion": {
       "Major": 3,
       "Minor": 3,
-      "Patch": 2,
+      "Patch": 3,
       "Build": 0
     },
     "ProductVersion": {
       "Major": 3,
       "Minor": 3,
-      "Patch": 2,
+      "Patch": 3,
       "Build": 0
     },
     "FileFlagsMask": "3f",
@@ -22,14 +22,14 @@
     "Comments": "Pinus Smart AWG Preview",
     "CompanyName": "Pinus VPN",
     "FileDescription": "Pinus Smart AWG Preview",
-    "FileVersion": "3.3.2",
+    "FileVersion": "3.3.3",
     "InternalName": "pinus-smart-awg",
     "LegalCopyright": "Pinus Smart AWG. Based on AmneziaWG, WireGuard, and amnezia-box.",
     "LegalTrademarks": "",
     "OriginalFilename": "PinusSmartAWG.exe",
     "PrivateBuild": "",
     "ProductName": "Pinus Smart AWG Preview",
-    "ProductVersion": "3.3.2",
+    "ProductVersion": "3.3.3",
     "SpecialBuild": "Isolated Preview; AWG 3.1"
   },
   "VarFileInfo": {

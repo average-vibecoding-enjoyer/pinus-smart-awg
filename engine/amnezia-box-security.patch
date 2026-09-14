@@ -216,26 +216,71 @@ index 4545eb8..9824860 100644
  golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 h1:H2TDz8ibqkAF6YGhCdN3jS9O0/s90v0rJh3X/OLHEUk=
  golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2/go.mod h1:K8+ghG5WaK9qNqU5K3HdILfMLy1f3aNYFI/wnl100a8=
 diff --git a/option/awg.go b/option/awg.go
-index f367fd4..c285d13 100644
+index f367fd4..ee15a01 100644
 --- a/option/awg.go
 +++ b/option/awg.go
-@@ -29,6 +29,15 @@ type AwgEndpointOptions struct {
- 	I4               string                           `json:"i4,omitempty"`
- 	I5               string                           `json:"i5,omitempty"`
- 	Peers            []AwgPeerOptions                 `json:"peers,omitempty"`
-+	HeaderProtectionKey string `json:"header_protection_key,omitempty"`
-+	ContentPaddingAddition string `json:"content_padding_addition,omitempty"`
-+	RekeyAfterTime string `json:"rekey_after_time,omitempty"`
-+	RekeyTimeout string `json:"rekey_timeout,omitempty"`
-+	RejectAfterTime string `json:"reject_after_time,omitempty"`
-+	KeepaliveTimeout string `json:"keepalive_timeout,omitempty"`
-+	MaxHandshakeAttempts string `json:"max_handshake_attempts,omitempty"`
-+	RandomTrailers *bool `json:"random_trailers,omitempty"`
-+	DisableCookies *bool `json:"disable_cookies,omitempty"`
+@@ -7,28 +7,38 @@ import (
+ )
+ 
+ type AwgEndpointOptions struct {
+-	UseIntegratedTun bool                             `json:"useIntegratedTun"`
+-	PrivateKey       string                           `json:"private_key"`
+-	Address          badoption.Listable[netip.Prefix] `json:"address"`
+-	MTU              uint32                           `json:"mtu,omitempty"`
+-	ListenPort       uint16                           `json:"listen_port,omitempty"`
+-	Jc               int                              `json:"jc,omitempty"`
+-	Jmin             int                              `json:"jmin,omitempty"`
+-	Jmax             int                              `json:"jmax,omitempty"`
+-	S1               int                              `json:"s1,omitempty"`
+-	S2               int                              `json:"s2,omitempty"`
+-	S3               int                              `json:"s3,omitempty"`
+-	S4               int                              `json:"s4,omitempty"`
+-	H1               string                           `json:"h1,omitempty"`
+-	H2               string                           `json:"h2,omitempty"`
+-	H3               string                           `json:"h3,omitempty"`
+-	H4               string                           `json:"h4,omitempty"`
+-	I1               string                           `json:"i1,omitempty"`
+-	I2               string                           `json:"i2,omitempty"`
+-	I3               string                           `json:"i3,omitempty"`
+-	I4               string                           `json:"i4,omitempty"`
+-	I5               string                           `json:"i5,omitempty"`
+-	Peers            []AwgPeerOptions                 `json:"peers,omitempty"`
++	UseIntegratedTun        bool                             `json:"useIntegratedTun"`
++	PrivateKey              string                           `json:"private_key"`
++	Address                 badoption.Listable[netip.Prefix] `json:"address"`
++	MTU                     uint32                           `json:"mtu,omitempty"`
++	ListenPort              uint16                           `json:"listen_port,omitempty"`
++	TCPIPv4FallbackResolver string                           `json:"tcp_ipv4_fallback_resolver,omitempty"`
++	Jc                      int                              `json:"jc,omitempty"`
++	Jmin                    int                              `json:"jmin,omitempty"`
++	Jmax                    int                              `json:"jmax,omitempty"`
++	S1                      int                              `json:"s1,omitempty"`
++	S2                      int                              `json:"s2,omitempty"`
++	S3                      int                              `json:"s3,omitempty"`
++	S4                      int                              `json:"s4,omitempty"`
++	H1                      string                           `json:"h1,omitempty"`
++	H2                      string                           `json:"h2,omitempty"`
++	H3                      string                           `json:"h3,omitempty"`
++	H4                      string                           `json:"h4,omitempty"`
++	I1                      string                           `json:"i1,omitempty"`
++	I2                      string                           `json:"i2,omitempty"`
++	I3                      string                           `json:"i3,omitempty"`
++	I4                      string                           `json:"i4,omitempty"`
++	I5                      string                           `json:"i5,omitempty"`
++	Peers                   []AwgPeerOptions                 `json:"peers,omitempty"`
++	HeaderProtectionKey     string                           `json:"header_protection_key,omitempty"`
++	ContentPaddingAddition  string                           `json:"content_padding_addition,omitempty"`
++	RekeyAfterTime          string                           `json:"rekey_after_time,omitempty"`
++	RekeyTimeout            string                           `json:"rekey_timeout,omitempty"`
++	RejectAfterTime         string                           `json:"reject_after_time,omitempty"`
++	KeepaliveTimeout        string                           `json:"keepalive_timeout,omitempty"`
++	MaxHandshakeAttempts    string                           `json:"max_handshake_attempts,omitempty"`
++	RandomTrailers          *bool                            `json:"random_trailers,omitempty"`
++	DisableCookies          *bool                            `json:"disable_cookies,omitempty"`
  	DialerOptions
  }
  
-@@ -38,5 +47,5 @@ type AwgPeerOptions struct {
+@@ -38,5 +48,5 @@ type AwgPeerOptions struct {
  	PublicKey                   string                           `json:"public_key,omitempty"`
  	PresharedKey                string                           `json:"preshared_key,omitempty"`
  	AllowedIPs                  badoption.Listable[netip.Prefix] `json:"allowed_ips,omitempty"`
@@ -243,7 +288,7 @@ index f367fd4..c285d13 100644
 +	PersistentKeepaliveInterval string                           `json:"persistent_keepalive_interval,omitempty"`
  }
 diff --git a/protocol/awg/endpoint.go b/protocol/awg/endpoint.go
-index 39213ad..f61fe34 100644
+index 39213ad..0d435d8 100644
 --- a/protocol/awg/endpoint.go
 +++ b/protocol/awg/endpoint.go
 @@ -6,6 +6,7 @@ import (
@@ -254,7 +299,40 @@ index 39213ad..f61fe34 100644
  
  	"github.com/sagernet/sing-box/adapter"
  	"github.com/sagernet/sing-box/adapter/endpoint"
-@@ -86,11 +87,13 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
+@@ -32,13 +33,28 @@ func RegisterEndpoint(registry *endpoint.Registry) {
+ type Endpoint struct {
+ 	*awg.Device
+ 	endpoint.Adapter
+-	address   []netip.Prefix
+-	router    adapter.Router
+-	logger    log.ContextLogger
+-	dnsRouter adapter.DNSRouter
++	address         []netip.Prefix
++	router          adapter.Router
++	logger          log.ContextLogger
++	dnsRouter       adapter.DNSRouter
++	tcpIPv4Fallback *tcpIPv4Fallback
+ }
+ 
+ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextLogger, tag string, options option.AwgEndpointOptions) (adapter.Endpoint, error) {
++	var fallback *tcpIPv4Fallback
++	if options.TCPIPv4FallbackResolver != "" {
++		if !common.Any(options.Address, func(address netip.Prefix) bool { return address.Addr().Is4() }) {
++			return nil, E.New("TCP IPv4 fallback requires an IPv4 endpoint address")
++		}
++		transports := service.FromContext[adapter.DNSTransportManager](ctx)
++		if transports == nil {
++			return nil, E.New("TCP IPv4 fallback requires a DNS transport manager")
++		}
++		if transport, found := transports.Transport(options.TCPIPv4FallbackResolver); !found || transport == nil {
++			return nil, E.New("TCP IPv4 fallback DNS transport not found: ", options.TCPIPv4FallbackResolver)
++		}
++		fallback = &tcpIPv4Fallback{resolver: options.TCPIPv4FallbackResolver, transports: transports, dns: service.FromContext[adapter.DNSRouter](ctx)}
++	}
+ 	if options.MTU == 0 {
+ 		options.MTU = 1408
+ 	}
+@@ -86,11 +102,13 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
  	var resolvePeer func(domain string) (netip.Addr, error)
  	if remoteIsDomain {
  		resolvePeer = func(domain string) (netip.Addr, error) {
@@ -270,7 +348,7 @@ index 39213ad..f61fe34 100644
  		}
  	}
  
-@@ -99,7 +102,7 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
+@@ -99,7 +117,7 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
  		return nil, err
  	}
  
@@ -279,10 +357,33 @@ index 39213ad..f61fe34 100644
  
  	dev, err := awg.NewDevice(ctx, logger, dial, ipc, awg.DeviceOpts{
  		UseIntegratedTun: options.UseIntegratedTun,
-@@ -122,11 +125,27 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
- 	}, nil
- }
+@@ -112,20 +130,41 @@ func NewEndpoint(ctx context.Context, router adapter.Router, logger log.ContextL
+ 		return nil, err
+ 	}
  
+-	return &Endpoint{
+-		Device:    dev,
+-		Adapter:   endpoint.NewAdapterWithDialerOptions("awg", tag, []string{N.NetworkTCP, N.NetworkUDP}, options.DialerOptions),
+-		address:   options.Address,
+-		router:    router,
+-		logger:    logger,
+-		dnsRouter: service.FromContext[adapter.DNSRouter](ctx),
+-	}, nil
++	endpoint := &Endpoint{
++		Device:          dev,
++		Adapter:         endpoint.NewAdapterWithDialerOptions("awg", tag, []string{N.NetworkTCP, N.NetworkUDP}, options.DialerOptions),
++		address:         options.Address,
++		router:          router,
++		logger:          logger,
++		dnsRouter:       service.FromContext[adapter.DNSRouter](ctx),
++		tcpIPv4Fallback: fallback,
++	}
++	if fallback != nil {
++		fallback.dialer = dev
++	}
++	return endpoint, nil
++}
++
 +func selectPeerAddress(addresses []netip.Addr) (netip.Addr, error) {
 +	for _, address := range addresses {
 +		address = address.Unmap()
@@ -297,47 +398,63 @@ index 39213ad..f61fe34 100644
 +		}
 +	}
 +	return netip.Addr{}, E.New("peer hostname resolved without a usable IP address")
-+}
-+
+ }
+ 
  func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string) (netip.Addr, error)) (string, error) {
  	privateKeyBytes, err := base64.StdEncoding.DecodeString(opts.PrivateKey)
 -	if err != nil {
 -		return "", err
--	}
 +	if err != nil || len(privateKeyBytes) != 32 {
-+ return "", E.New("private key must be 32 base64-encoded bytes")
-+ }
++		return "", E.New("private key must be 32 base64-encoded bytes")
+ 	}
  	s := "private_key=" + hex.EncodeToString(privateKeyBytes)
  	if opts.ListenPort != 0 {
- 		s += "\nlisten_port=" + format.ToString(opts.ListenPort)
-@@ -180,11 +199,23 @@ func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string
+@@ -180,10 +219,42 @@ func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string
  		s += "\ni5=" + opts.I5
  	}
  
-+if opts.HeaderProtectionKey != "" {
-+ key, err := base64.StdEncoding.DecodeString(opts.HeaderProtectionKey)
-+ if err != nil || len(key) != 32 { return "", E.New("header protection key must be 32 base64-encoded bytes") }
-+ s += "\nheader_protection_key=" + hex.EncodeToString(key)
-+ }
-+if opts.ContentPaddingAddition != "" { s += "\ncontent_padding_addition=" + opts.ContentPaddingAddition }
-+if opts.RekeyAfterTime != "" { s += "\nrekey_after_time=" + opts.RekeyAfterTime }
-+if opts.RekeyTimeout != "" { s += "\nrekey_timeout=" + opts.RekeyTimeout }
-+if opts.RejectAfterTime != "" { s += "\nreject_after_time=" + opts.RejectAfterTime }
-+if opts.KeepaliveTimeout != "" { s += "\nkeepalive_timeout=" + opts.KeepaliveTimeout }
-+if opts.MaxHandshakeAttempts != "" { s += "\nmax_handshake_attempts=" + opts.MaxHandshakeAttempts }
-+if opts.RandomTrailers != nil { s += "\nrandom_trailers=" + format.ToString(*opts.RandomTrailers) }
-+if opts.DisableCookies != nil { s += "\ndisable_cookies=" + format.ToString(*opts.DisableCookies) }
++	if opts.HeaderProtectionKey != "" {
++		key, err := base64.StdEncoding.DecodeString(opts.HeaderProtectionKey)
++		if err != nil || len(key) != 32 {
++			return "", E.New("header protection key must be 32 base64-encoded bytes")
++		}
++		s += "\nheader_protection_key=" + hex.EncodeToString(key)
++	}
++	if opts.ContentPaddingAddition != "" {
++		s += "\ncontent_padding_addition=" + opts.ContentPaddingAddition
++	}
++	if opts.RekeyAfterTime != "" {
++		s += "\nrekey_after_time=" + opts.RekeyAfterTime
++	}
++	if opts.RekeyTimeout != "" {
++		s += "\nrekey_timeout=" + opts.RekeyTimeout
++	}
++	if opts.RejectAfterTime != "" {
++		s += "\nreject_after_time=" + opts.RejectAfterTime
++	}
++	if opts.KeepaliveTimeout != "" {
++		s += "\nkeepalive_timeout=" + opts.KeepaliveTimeout
++	}
++	if opts.MaxHandshakeAttempts != "" {
++		s += "\nmax_handshake_attempts=" + opts.MaxHandshakeAttempts
++	}
++	if opts.RandomTrailers != nil {
++		s += "\nrandom_trailers=" + format.ToString(*opts.RandomTrailers)
++	}
++	if opts.DisableCookies != nil {
++		s += "\ndisable_cookies=" + format.ToString(*opts.DisableCookies)
++	}
 +
  	for _, peer := range opts.Peers {
  		publicKeyBytes, err := base64.StdEncoding.DecodeString(peer.PublicKey)
 -		if err != nil {
 -			return "", err
--		}
-+		if err != nil || len(publicKeyBytes) != 32 { return "", E.New("public key must be 32 base64-encoded bytes") }
++		if err != nil || len(publicKeyBytes) != 32 {
++			return "", E.New("public key must be 32 base64-encoded bytes")
+ 		}
  		s += "\npublic_key=" + hex.EncodeToString(publicKeyBytes)
  		if peer.PresharedKey != "" {
- 			presharedKeyBytes, err := base64.StdEncoding.DecodeString(peer.PresharedKey)
-@@ -207,9 +238,9 @@ func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string
+@@ -207,9 +278,9 @@ func genIpcConfig(opts option.AwgEndpointOptions, resolvePeer func(domain string
  				}
  				endpointAddr = resolvedAddr.String()
  			}
@@ -349,6 +466,16 @@ index 39213ad..f61fe34 100644
  			s += "\npersistent_keepalive_interval=" + format.ToString(peer.PersistentKeepaliveInterval)
  		}
  		for _, allowedIp := range peer.AllowedIPs {
+@@ -257,6 +328,9 @@ func (e *Endpoint) DialContext(ctx context.Context, network string, destination
+ 	} else if !destination.Addr.IsValid() {
+ 		return nil, E.New("invalid destination: ", destination)
+ 	}
++	if e.tcpIPv4Fallback != nil {
++		return e.tcpIPv4Fallback.DialContext(ctx, network, destination)
++	}
+ 	return e.Device.DialContext(ctx, network, destination)
+ }
+ 
 diff --git a/protocol/awg/endpoint_test.go b/protocol/awg/endpoint_test.go
 new file mode 100644
 index 0000000..8b61e2f
@@ -392,22 +519,481 @@ index 0000000..8b61e2f
 +}
 diff --git a/protocol/awg/pinus_validation.go b/protocol/awg/pinus_validation.go
 new file mode 100644
-index 0000000..ffe9162
+index 0000000..05f8666
 --- /dev/null
 +++ b/protocol/awg/pinus_validation.go
 @@ -0,0 +1,13 @@
 +package awg
 +
 +import (
-+ "net/netip"
-+ "github.com/sagernet/sing-box/option"
++	"github.com/sagernet/sing-box/option"
++	"net/netip"
 +)
 +
 +// Resolver supplies only a synthetic address for syntax validation. Actual
 +// hostname resolution happens later when the user starts this connection.
 +func ValidateEndpointConfig(options option.AwgEndpointOptions) error {
-+ _,err:=genIpcConfig(options,func(string)(netip.Addr,error){return netip.MustParseAddr("192.0.2.1"),nil})
-+ return err
++	_, err := genIpcConfig(options, func(string) (netip.Addr, error) { return netip.MustParseAddr("192.0.2.1"), nil })
++	return err
++}
+diff --git a/protocol/awg/tcp_ipv4_fallback.go b/protocol/awg/tcp_ipv4_fallback.go
+new file mode 100644
+index 0000000..b4f0192
+--- /dev/null
++++ b/protocol/awg/tcp_ipv4_fallback.go
+@@ -0,0 +1,95 @@
++package awg
++
++import (
++	"context"
++	"errors"
++	"net"
++	"net/netip"
++	"strings"
++	"syscall"
++	"time"
++
++	"github.com/sagernet/sing-box/adapter"
++	C "github.com/sagernet/sing-box/constant"
++	E "github.com/sagernet/sing/common/exceptions"
++	M "github.com/sagernet/sing/common/metadata"
++	N "github.com/sagernet/sing/common/network"
++)
++
++// Some profiles advertise IPv6 even when their IPv6 path is unreachable.
++// Once the TUN has accepted the browser's TCP handshake, that failure becomes
++// a TLS-stage reset and the browser may no longer try its IPv4 address. Retry
++// only this failed dial, before any application payload has been forwarded.
++// The fixed DNS transport and the same AWG device preserve the chosen policy.
++// Missing/hidden hostnames and UDP cannot use this TCP-only recovery.
++type tcpIPv4Fallback struct {
++	resolver   string
++	dns        adapter.DNSRouter
++	transports adapter.DNSTransportManager
++	dialer     N.Dialer
++}
++
++func (f *tcpIPv4Fallback) DialContext(ctx context.Context, network string, destination M.Socksaddr) (net.Conn, error) {
++	connection, originalErr := f.dialer.DialContext(ctx, network, destination)
++	if originalErr == nil || network != N.NetworkTCP || !destination.IsIPv6() || ctx.Err() != nil || !isTCPNetworkUnreachable(originalErr) {
++		return connection, originalErr
++	}
++	metadata := adapter.ContextFrom(ctx)
++	if metadata == nil || f.resolver == "" || f.dns == nil || f.transports == nil {
++		return nil, originalErr
++	}
++	domain := strings.TrimSuffix(metadata.Domain, ".")
++	if !M.IsDomainName(domain) || M.ParseAddr(domain).IsValid() {
++		return nil, originalErr
++	}
++	transport, found := f.transports.Transport(f.resolver)
++	if !found || transport == nil {
++		return nil, errors.Join(originalErr, E.New("TCP IPv4 fallback DNS transport not found: ", f.resolver))
++	}
++	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
++	defer cancel()
++	addresses, err := f.dns.Lookup(ctx, domain, adapter.DNSQueryOptions{
++		Transport: transport,
++		Strategy:  C.DomainStrategyIPv4Only,
++	})
++	if err != nil {
++		return nil, errors.Join(originalErr, E.Cause(err, "TCP IPv4 fallback DNS"))
++	}
++	var ipv4Addresses []netip.Addr
++	for _, address := range addresses {
++		// Never send a second IPv6 dial, even if a DNS implementation violates
++		// the requested family. Mapped IPv6 addresses are not IPv4 answers.
++		if address.Is4() {
++			ipv4Addresses = append(ipv4Addresses, address)
++		}
++	}
++	if len(ipv4Addresses) == 0 {
++		return nil, errors.Join(originalErr, E.New("TCP IPv4 fallback DNS returned no IPv4 address"))
++	}
++	if err := ctx.Err(); err != nil {
++		return nil, errors.Join(originalErr, err)
++	}
++	connection, err = N.DialSerial(ctx, f.dialer, network, M.Socksaddr{Fqdn: domain, Port: destination.Port}, ipv4Addresses)
++	if err != nil {
++		return nil, errors.Join(originalErr, E.Cause(err, "TCP IPv4 fallback dial"))
++	}
++	return connection, nil
++}
++
++func isTCPNetworkUnreachable(err error) bool {
++	var operation *net.OpError
++	if !errors.As(err, &operation) || operation.Op != "connect" || operation.Net != N.NetworkTCP || operation.Err == nil {
++		return false
++	}
++	if errors.Is(operation.Err, syscall.ENETUNREACH) || errors.Is(operation.Err, syscall.EHOSTUNREACH) {
++		return true
++	}
++	// The pinned gVisor gonet bridge converts tcpip errors to errors.New,
++	// losing errno/type identity. Match only its exact connect error causes.
++	switch operation.Err.Error() {
++	case "network is unreachable", "no route to host":
++		return true
++	default:
++		return false
++	}
++}
+diff --git a/protocol/awg/tcp_ipv4_fallback_test.go b/protocol/awg/tcp_ipv4_fallback_test.go
+new file mode 100644
+index 0000000..e5ec98c
+--- /dev/null
++++ b/protocol/awg/tcp_ipv4_fallback_test.go
+@@ -0,0 +1,352 @@
++package awg
++
++import (
++	"context"
++	"errors"
++	"io"
++	"net"
++	"net/netip"
++	"syscall"
++	"testing"
++
++	mDNS "github.com/miekg/dns"
++	"github.com/sagernet/sing-box/adapter"
++	C "github.com/sagernet/sing-box/constant"
++	boxDNS "github.com/sagernet/sing-box/dns"
++	"github.com/sagernet/sing-box/log"
++	"github.com/sagernet/sing-box/option"
++	M "github.com/sagernet/sing/common/metadata"
++	"github.com/sagernet/sing/service"
++)
++
++func TestTCPIPv4FallbackOverridesDirectDNSRuleWithinVPN(t *testing.T) {
++	direct := &fallbackMemoryDNSTransport{TransportAdapter: boxDNS.NewTransportAdapter("memory", "direct-dns", nil), answer: netip.MustParseAddr("198.51.100.9")}
++	vpn := &fallbackMemoryDNSTransport{TransportAdapter: boxDNS.NewTransportAdapter("memory", "profile-dns-0", nil), answer: fallbackIPv4.Addr}
++	manager := &fallbackMemoryDNSManager{direct: direct, vpn: vpn}
++	ctx := service.ContextWith[adapter.DNSTransportManager](context.Background(), manager)
++	var options option.DNSOptions
++	if err := options.UnmarshalJSONContext(ctx, []byte(`{"rules":[{"domain":["vk.ru"],"action":"route","server":"direct-dns","strategy":"ipv4_only"}],"disable_cache":true}`)); err != nil {
++		t.Fatal(err)
++	}
++	router := boxDNS.NewRouter(ctx, log.NewNOPFactory(), options)
++	if err := router.Initialize(options.Rules); err != nil {
++		t.Fatal(err)
++	}
++	if err := router.Start(adapter.StartStateStart); err != nil {
++		t.Fatal(err)
++	}
++	defer router.Close()
++	// A process/custom VPN policy may override the direct domain policy for
++	// this connection. The fallback must still use the fixed VPN transport.
++	baseline, err := router.Lookup(ctx, "vk.ru", adapter.DNSQueryOptions{})
++	if err != nil || len(baseline) != 1 || baseline[0] != direct.answer || direct.queries != 1 || vpn.queries != 0 {
++		t.Fatalf("baseline DNS rule failed: %v %v", baseline, err)
++	}
++	direct.queries = 0
++	fixture := newFallbackFixture()
++	fixture.fallback.dns = router
++	fixture.fallback.transports = manager
++	metadata := &adapter.InboundContext{Domain: "vk.ru", Destination: fallbackIPv6}
++	ctx = adapter.WithContext(ctx, metadata)
++	conn, err := fixture.endpoint().DialContext(ctx, "tcp", fallbackIPv6)
++	if err != nil {
++		t.Fatal(err)
++	}
++	conn.Close()
++	if direct.queries != 0 || vpn.queries != 1 || len(fixture.dialer.attempts) != 2 || fixture.dialer.attempts[1] != fallbackIPv4 {
++		t.Fatalf("fallback DNS escaped VPN: direct=%d vpn=%d dials=%v", direct.queries, vpn.queries, fixture.dialer.attempts)
++	}
++	if metadata.Domain != "vk.ru" || metadata.Destination != fallbackIPv6 {
++		t.Fatal("DNS lookup mutated routing context")
++	}
++}
++
++func TestTCPIPv4FallbackRejectsInvalidConfigurationBeforeCreatingDevice(t *testing.T) {
++	for _, test := range []struct {
++		name    string
++		address netip.Prefix
++		manager adapter.DNSTransportManager
++	}{
++		{"IPv6-only", netip.MustParsePrefix("2001:db8::1/128"), nil},
++		{"no-manager", netip.MustParsePrefix("192.0.2.1/32"), nil},
++		{"missing-tag", netip.MustParsePrefix("192.0.2.1/32"), &fallbackDNSManager{tag: "other", transport: &fallbackDNSTransport{}}},
++	} {
++		t.Run(test.name, func(t *testing.T) {
++			ctx := context.Background()
++			if test.manager != nil {
++				ctx = service.ContextWith[adapter.DNSTransportManager](ctx, test.manager)
++			}
++			endpoint, err := NewEndpoint(ctx, nil, log.NewNOPFactory().NewLogger("test"), "awg-out", option.AwgEndpointOptions{Address: []netip.Prefix{test.address}, TCPIPv4FallbackResolver: "profile-dns-0"})
++			if endpoint != nil || err == nil {
++				t.Fatal("invalid fallback configuration accepted")
++			}
++		})
++	}
++}
++
++type fallbackMemoryDNSTransport struct {
++	boxDNS.TransportAdapter
++	answer  netip.Addr
++	queries int
++}
++
++func (d *fallbackMemoryDNSTransport) Start(adapter.StartStage) error { return nil }
++func (d *fallbackMemoryDNSTransport) Close() error                   { return nil }
++func (d *fallbackMemoryDNSTransport) Reset()                         {}
++func (d *fallbackMemoryDNSTransport) Exchange(_ context.Context, request *mDNS.Msg) (*mDNS.Msg, error) {
++	d.queries++
++	response := new(mDNS.Msg)
++	response.SetReply(request)
++	for _, q := range request.Question {
++		if q.Qtype == mDNS.TypeA {
++			response.Answer = append(response.Answer, &mDNS.A{Hdr: mDNS.RR_Header{Name: q.Name, Rrtype: mDNS.TypeA, Class: mDNS.ClassINET, Ttl: 60}, A: net.IP(d.answer.AsSlice())})
++		}
++	}
++	return response, nil
++}
++
++type fallbackMemoryDNSManager struct {
++	adapter.DNSTransportManager
++	direct, vpn *fallbackMemoryDNSTransport
++}
++
++func (m *fallbackMemoryDNSManager) Transport(tag string) (adapter.DNSTransport, bool) {
++	if tag == m.direct.Tag() {
++		return m.direct, true
++	}
++	if tag == m.vpn.Tag() {
++		return m.vpn, true
++	}
++	return nil, false
++}
++func (m *fallbackMemoryDNSManager) Default() adapter.DNSTransport { return m.direct }
++
++// These tests exercise the real AWG Endpoint.DialContext path. The terminal
++// AWG device and DNS exchange are replaced by memory implementations: there
++// are no OS sockets, listeners, TUNs, services, routes or profile secrets.
++func TestTCPIPv4FallbackAfterIPv6Unreachable(t *testing.T) {
++	fixture := newFallbackFixture()
++	endpoint := fixture.endpoint()
++	ctx := adapter.WithContext(context.Background(), &adapter.InboundContext{Domain: "www.google.com"})
++	connection, err := endpoint.DialContext(ctx, "tcp", fallbackIPv6)
++	if err != nil {
++		t.Fatal(err)
++	}
++	defer connection.Close()
++	if len(fixture.dialer.attempts) != 2 || fixture.dialer.attempts[0] != fallbackIPv6 || fixture.dialer.attempts[1] != fallbackIPv4 {
++		t.Fatalf("AWG dial attempts = %v", fixture.dialer.attempts)
++	}
++	if fixture.dns.queries != 1 || fixture.dns.domain != "www.google.com" || fixture.dns.options.Transport != fixture.transport || fixture.dns.options.Strategy != C.DomainStrategyIPv4Only {
++		t.Fatalf("fallback did not use fixed VPN DNS + IPv4-only: %+v", fixture.dns)
++	}
++	if _, err := connection.Write([]byte("payload")); err != nil {
++		t.Fatal(err)
++	}
++	buffer := make([]byte, 7)
++	if _, err := io.ReadFull(connection, buffer); err != nil || string(buffer) != "payload" {
++		t.Fatalf("payload relay: %q, %v", buffer, err)
++	}
++}
++
++func TestTCPIPv4FallbackPreservesPortAndObservesDNSCancellation(t *testing.T) {
++	t.Run("port", func(t *testing.T) {
++		fixture := newFallbackFixture()
++		destination := fallbackIPv6
++		destination.Port = 9443
++		ctx := adapter.WithContext(context.Background(), &adapter.InboundContext{Domain: "example.test."})
++		conn, err := fixture.endpoint().DialContext(ctx, "tcp", destination)
++		if err != nil {
++			t.Fatal(err)
++		}
++		conn.Close()
++		if fixture.dialer.attempts[1].Port != 9443 || fixture.dns.domain != "example.test" {
++			t.Fatalf("changed destination identity: %+v", fixture.dialer.attempts)
++		}
++	})
++	t.Run("canceled-by-DNS", func(t *testing.T) {
++		fixture := newFallbackFixture()
++		ctx, cancel := context.WithCancel(adapter.WithContext(context.Background(), &adapter.InboundContext{Domain: "example.test"}))
++		defer cancel()
++		fixture.dns.afterLookup = cancel
++		conn, err := fixture.endpoint().DialContext(ctx, "tcp", fallbackIPv6)
++		if conn != nil || !errors.Is(err, context.Canceled) || len(fixture.dialer.attempts) != 1 {
++			t.Fatalf("dial continued after cancellation: %v %v", conn, err)
++		}
++	})
++}
++
++func TestTCPIPv4FallbackKeepsOtherPathsUnchanged(t *testing.T) {
++	for _, tc := range []struct {
++		name, network, domain string
++		destination           M.Socksaddr
++		firstError            error
++		resolver              string
++		canceled              bool
++	}{
++		{"working-ipv6", "tcp", "www.google.com", fallbackIPv6, nil, "profile-dns-0", false},
++		{"disabled-negative-control", "tcp", "www.google.com", fallbackIPv6, fallbackUnreachable(), "", false},
++		{"ipv4", "tcp", "www.google.com", fallbackIPv4, fallbackUnreachable(), "profile-dns-0", false},
++		{"udp", "udp", "www.google.com", fallbackIPv6, fallbackUnreachable(), "profile-dns-0", false},
++		{"unknown-host", "tcp", "", fallbackIPv6, fallbackUnreachable(), "profile-dns-0", false},
++		{"literal-host", "tcp", "192.0.2.8", fallbackIPv6, fallbackUnreachable(), "profile-dns-0", false},
++		{"invalid-host", "tcp", "bad/domain", fallbackIPv6, fallbackUnreachable(), "profile-dns-0", false},
++		{"connection-refused", "tcp", "www.google.com", fallbackIPv6, &net.OpError{Op: "connect", Net: "tcp", Err: syscall.ECONNREFUSED}, "profile-dns-0", false},
++		{"connection-reset", "tcp", "www.google.com", fallbackIPv6, &net.OpError{Op: "connect", Net: "tcp", Err: syscall.ECONNRESET}, "profile-dns-0", false},
++		{"timeout", "tcp", "www.google.com", fallbackIPv6, context.DeadlineExceeded, "profile-dns-0", false},
++		{"canceled", "tcp", "www.google.com", fallbackIPv6, fallbackUnreachable(), "profile-dns-0", true},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			fixture := newFallbackFixture()
++			fixture.dialer.firstError = tc.firstError
++			fixture.fallback.resolver = tc.resolver
++			ctx, cancel := context.WithCancel(adapter.WithContext(context.Background(), &adapter.InboundContext{Domain: tc.domain}))
++			defer cancel()
++			if tc.canceled {
++				cancel()
++			}
++			connection, err := fixture.endpoint().DialContext(ctx, tc.network, tc.destination)
++			if connection != nil {
++				connection.Close()
++			}
++			if !errors.Is(err, tc.firstError) || len(fixture.dialer.attempts) != 1 || fixture.dns.queries != 0 {
++				t.Fatalf("unexpected fallback: err=%v attempts=%v queries=%d", err, fixture.dialer.attempts, fixture.dns.queries)
++			}
++		})
++	}
++}
++
++func TestTCPIPv4FallbackNeverUsesOtherEgress(t *testing.T) {
++	for _, name := range []string{"missing-vpn-dns", "dns-error", "no-ipv4-answer", "ipv4-dial-error"} {
++		t.Run(name, func(t *testing.T) {
++			fixture := newFallbackFixture()
++			switch name {
++			case "missing-vpn-dns":
++				fixture.manager.tag = "different-tag"
++			case "dns-error":
++				fixture.dns.err = errors.New("synthetic DNS failure")
++			case "no-ipv4-answer":
++				fixture.dns.answers = []netip.Addr{fallbackIPv6.Addr, netip.MustParseAddr("::ffff:192.0.2.8")}
++			case "ipv4-dial-error":
++				fixture.dialer.retryError = errors.New("synthetic AWG IPv4 failure")
++			}
++			ctx := adapter.WithContext(context.Background(), &adapter.InboundContext{Domain: "www.google.com"})
++			connection, err := fixture.endpoint().DialContext(ctx, "tcp", fallbackIPv6)
++			if connection != nil || !errors.Is(err, fixture.dialer.firstError) {
++				t.Fatalf("must preserve original failure: conn=%v err=%v", connection, err)
++			}
++			want := 1
++			if name == "ipv4-dial-error" {
++				want = 2
++			}
++			if len(fixture.dialer.attempts) != want {
++				t.Fatalf("unexpected dial attempts: %v", fixture.dialer.attempts)
++			}
++		})
++	}
++}
++
++func TestTCPUnreachableClassification(t *testing.T) {
++	for _, tc := range []struct {
++		name string
++		err  error
++		want bool
++	}{
++		{"gvisor-network", fallbackUnreachable(), true},
++		{"gvisor-host", &net.OpError{Op: "connect", Net: "tcp", Err: errors.New("no route to host")}, true},
++		{"errno-network", &net.OpError{Op: "connect", Net: "tcp", Err: syscall.ENETUNREACH}, true},
++		{"errno-host", &net.OpError{Op: "connect", Net: "tcp", Err: syscall.EHOSTUNREACH}, true},
++		{"bare-string", errors.New("network is unreachable"), false},
++		{"wrong-operation", &net.OpError{Op: "write", Net: "tcp", Err: syscall.ENETUNREACH}, false},
++		{"wrong-network", &net.OpError{Op: "connect", Net: "udp", Err: syscall.ENETUNREACH}, false},
++		{"substring", &net.OpError{Op: "connect", Net: "tcp", Err: errors.New("server says network is unreachable")}, false},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			if got := isTCPNetworkUnreachable(tc.err); got != tc.want {
++				t.Fatalf("got %v, want %v", got, tc.want)
++			}
++		})
++	}
++}
++
++var fallbackIPv6 = M.Socksaddr{Addr: netip.MustParseAddr("2001:db8::8"), Port: 443}
++var fallbackIPv4 = M.Socksaddr{Addr: netip.MustParseAddr("192.0.2.8"), Port: 443}
++
++func fallbackUnreachable() error {
++	return &net.OpError{Op: "connect", Net: "tcp", Addr: net.TCPAddrFromAddrPort(fallbackIPv6.AddrPort()), Err: errors.New("network is unreachable")}
++}
++
++type fallbackDNS struct {
++	adapter.DNSRouter
++	queries     int
++	domain      string
++	options     adapter.DNSQueryOptions
++	answers     []netip.Addr
++	err         error
++	afterLookup func()
++}
++
++func (d *fallbackDNS) Lookup(_ context.Context, domain string, options adapter.DNSQueryOptions) ([]netip.Addr, error) {
++	d.queries++
++	d.domain = domain
++	d.options = options
++	if d.afterLookup != nil {
++		d.afterLookup()
++	}
++	return d.answers, d.err
++}
++
++type fallbackDNSManager struct {
++	adapter.DNSTransportManager
++	tag       string
++	transport adapter.DNSTransport
++}
++
++func (m *fallbackDNSManager) Transport(tag string) (adapter.DNSTransport, bool) {
++	return m.transport, tag == m.tag
++}
++
++type fallbackDNSTransport struct{ adapter.DNSTransport }
++type fallbackDialer struct {
++	attempts               []M.Socksaddr
++	firstError, retryError error
++}
++
++func (d *fallbackDialer) DialContext(_ context.Context, _ string, destination M.Socksaddr) (net.Conn, error) {
++	d.attempts = append(d.attempts, destination)
++	if len(d.attempts) == 1 && d.firstError != nil {
++		return nil, d.firstError
++	}
++	if len(d.attempts) > 1 && d.retryError != nil {
++		return nil, d.retryError
++	}
++	client, server := net.Pipe()
++	go func() {
++		defer server.Close()
++		buffer := make([]byte, 7)
++		if _, err := io.ReadFull(server, buffer); err == nil {
++			server.Write(buffer)
++		}
++	}()
++	return client, nil
++}
++func (d *fallbackDialer) ListenPacket(context.Context, M.Socksaddr) (net.PacketConn, error) {
++	panic("unexpected UDP listener")
++}
++
++type fallbackFixture struct {
++	fallback  *tcpIPv4Fallback
++	dns       *fallbackDNS
++	manager   *fallbackDNSManager
++	transport *fallbackDNSTransport
++	dialer    *fallbackDialer
++}
++
++func newFallbackFixture() *fallbackFixture {
++	f := &fallbackFixture{dns: &fallbackDNS{answers: []netip.Addr{fallbackIPv6.Addr, fallbackIPv4.Addr}}, transport: &fallbackDNSTransport{}, dialer: &fallbackDialer{firstError: fallbackUnreachable()}}
++	f.manager = &fallbackDNSManager{tag: "profile-dns-0", transport: f.transport}
++	f.fallback = &tcpIPv4Fallback{resolver: "profile-dns-0", dns: f.dns, transports: f.manager, dialer: f.dialer}
++	return f
++}
++func (f *fallbackFixture) endpoint() *Endpoint {
++	return &Endpoint{logger: log.NewNOPFactory().NewLogger("test"), tcpIPv4Fallback: f.fallback}
 +}
 diff --git a/transport/awg/bind.go b/transport/awg/bind.go
 index 8c8ae68..addbb90 100644

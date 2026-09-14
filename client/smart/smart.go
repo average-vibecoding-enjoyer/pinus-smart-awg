@@ -424,6 +424,20 @@ func BuildConfig(config *conf.Config, settings RoutingSettings) ([]byte, error) 
 	if tag, ok := servers[0]["tag"].(string); ok {
 		finalDNS = tag
 	}
+	if families.ipv4 {
+		// An IPv6-capable profile may point at a server without IPv6 egress.
+		// Recover failed TCP IPv6 dials by resolving A through this VPN DNS
+		// and retrying inside the same AWG endpoint, after policy selection.
+		fallbackDNS := finalDNS
+		for _, server := range servers {
+			address, _ := server["server"].(string)
+			if ip := net.ParseIP(address); ip != nil && ip.To4() != nil {
+				fallbackDNS, _ = server["tag"].(string)
+				break
+			}
+		}
+		endpoint["tcp_ipv4_fallback_resolver"] = fallbackDNS
+	}
 
 	dnsRules := policyDNSRules(settings, finalDNS, families.dnsStrategy())
 	// Direct destinations can also arrive as hostnames (for example from
