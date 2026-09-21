@@ -61,6 +61,48 @@ function Get-SHA256([string]$Path) {
     return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash.ToUpperInvariant()
 }
 
+function New-EngineSourceArchive([string]$Source, [string]$Destination, [string]$Patch, [object]$AwgManifest) {
+    Assert-PathUnderRoot $Destination
+    $sourcePrefix = (Get-NormalizedPath $Source) + [IO.Path]::DirectorySeparatorChar
+    $sourceIndex = @(& git -C $Source -c core.quotepath=false ls-files --stage)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to enumerate the pinned amnezia-box source."
+    }
+    $sourceFiles = @($sourceIndex | ForEach-Object {
+        # Upstream mobile-client gitlinks are not files or Windows engine inputs.
+        if ($_ -match '^160000 ') { return }
+        if ($_ -notmatch '^100(?:644|755) [0-9a-f]+ 0\t(.+)$') {
+            throw "Unsupported engine source index entry: $_"
+        }
+        $Matches[1]
+    })
+
+    # Read working files, including new patch files and the verified AWG module.
+    # Other untracked files, build outputs and Git metadata are never included.
+    $sourceFiles += @([regex]::Matches([IO.File]::ReadAllText($Patch), '(?m)^\+\+\+ b/([^\r\n]+)') |
+        ForEach-Object { $_.Groups[1].Value })
+    $sourceFiles += @($AwgManifest.files.PSObject.Properties |
+        ForEach-Object { "pinus-awg3/$($_.Name)" })
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [IO.Compression.ZipFile]::Open($Destination, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($relativePath in ($sourceFiles | Sort-Object -Unique)) {
+            $fullPath = [IO.Path]::GetFullPath((Join-Path $Source $relativePath))
+            if (-not $fullPath.StartsWith($sourcePrefix, [StringComparison]::OrdinalIgnoreCase) -or
+                $relativePath -match '(^|[/\\])\.git([/\\]|$)' -or
+                -not (Test-Path -LiteralPath $fullPath -PathType Leaf)) {
+                throw "Invalid engine source archive entry: $relativePath"
+            }
+            [void][IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $archive, $fullPath, $relativePath.Replace('\', '/'), [IO.Compression.CompressionLevel]::Optimal
+            )
+        }
+    } finally {
+        $archive.Dispose()
+    }
+}
+
 function Get-VerifiedDownload([string]$URL, [string]$Destination, [string]$ExpectedSHA256) {
     Assert-PathUnderRoot $Destination
     if (Test-Path -LiteralPath $Destination) {
@@ -275,9 +317,18 @@ if (-not $engineReady) {
         Assert-PathUnderRoot $EngineSource
         Remove-Item -LiteralPath $EngineSource -Recurse -Force
     }
-    & git clone --depth 1 --branch $EngineTag $EngineRepository $EngineSource
+    # Fetch the immutable revision directly: upstream may remove or move its tag.
+    & git init $EngineSource
     if ($LASTEXITCODE -ne 0) {
-        throw "Unable to clone the pinned amnezia-box source."
+        throw "Unable to initialize the amnezia-box source directory."
+    }
+    & git -C $EngineSource fetch --depth 1 $EngineRepository $EngineCommit
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to fetch the pinned amnezia-box commit $EngineCommit."
+    }
+    & git -C $EngineSource -c core.autocrlf=false checkout --detach FETCH_HEAD
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to check out the pinned amnezia-box source."
     }
 }
 $currentCommit = (& git -C $EngineSource rev-parse HEAD).Trim()
@@ -346,10 +397,7 @@ try {
     }
 
     $EngineArchive = Join-Path $Release "amnezia-box-source-$EngineCommit.zip"
-    & git -C $EngineSource archive --format=zip "--output=$EngineArchive" HEAD
-    if ($LASTEXITCODE -ne 0) {
-        throw "Unable to create the corresponding amnezia-box source archive."
-    }
+    New-EngineSourceArchive $EngineSource $EngineArchive $EnginePatch $AwgManifest
     $EnginePatchAsset = Join-Path $Release "amnezia-box-security-$EnginePatchSHA256.patch"
     Copy-Item -LiteralPath $EnginePatch -Destination $EnginePatchAsset
     Push-Location $EngineSource
